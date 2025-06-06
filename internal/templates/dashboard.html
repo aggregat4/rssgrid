@@ -1,0 +1,23 @@
+{{define "content"}}
+<div class="grid">
+    {{range .Feeds}}
+    <div class="widget">
+        <div class="widget-header">
+            <h2 class="widget-title">{{.Feed.Title}}</h2>
+            <form action="/feeds/{{.Feed.ID}}/seen" method="POST">
+                <button type="submit" class="btn btn-secondary">Mark All as Read</button>
+            </form>
+        </div>
+        <ul class="post-list">
+            {{range .Posts}}
+            <li class="post-item">
+                <a href="{{.Link}}" class="post-link {{if .Seen}}seen{{end}}" target="_blank" data-post-id="{{.ID}}">
+                    {{.Title}}
+                </a>
+            </li>
+            {{end}}
+        </ul>
+    </div>
+    {{end}}
+</div>
+{{end}} 
