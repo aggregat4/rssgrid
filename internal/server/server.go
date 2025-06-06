@@ -5,13 +5,14 @@ import (
 	"html/template"
 	"log"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/alexedwards/scs/v2"
 	"github.com/boris/go-rssgrid/internal/auth"
 	"github.com/boris/go-rssgrid/internal/db"
 	"github.com/boris/go-rssgrid/internal/feed"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 )
 
 type Server struct {
@@ -46,36 +47,42 @@ func NewServer(store *db.Store, oidc *auth.OIDCProvider, sessionKey string) (*Se
 }
 
 func (s *Server) Start(addr string) error {
-	mux := http.NewServeMux()
+	r := chi.NewRouter()
+
+	// Middleware
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
+	r.Use(s.session.LoadAndSave)
 
 	// Public routes
-	mux.HandleFunc("/login", s.handleLogin)
-	mux.HandleFunc("/auth/callback", s.handleAuthCallback)
+	r.Get("/login", s.handleLogin)
+	r.Get("/auth/callback", s.handleAuthCallback)
 
 	// Protected routes
-	mux.HandleFunc("/", s.requireAuth(s.handleDashboard))
-	mux.HandleFunc("/settings", s.requireAuth(s.handleSettings))
-	mux.HandleFunc("/settings/feeds", s.requireAuth(s.handleAddFeed))
-	mux.HandleFunc("/settings/feeds/", s.requireAuth(s.handleDeleteFeed))
-	mux.HandleFunc("/posts/", s.requireAuth(s.handleMarkPostSeen))
-	mux.HandleFunc("/feeds/", s.requireAuth(s.handleMarkAllSeen))
+	r.Group(func(r chi.Router) {
+		r.Use(s.requireAuth)
 
-	// Wrap with session middleware
-	handler := s.session.LoadAndSave(mux)
+		r.Get("/", s.handleDashboard)
+		r.Get("/settings", s.handleSettings)
+		r.Post("/settings/feeds", s.handleAddFeed)
+		r.Post("/settings/feeds/{feedId}/delete", s.handleDeleteFeed)
+		r.Post("/posts/{postId}/seen", s.handleMarkPostSeen)
+		r.Post("/feeds/{feedId}/seen", s.handleMarkAllSeen)
+	})
 
 	log.Printf("Starting server on %s", addr)
-	return http.ListenAndServe(addr, handler)
+	return http.ListenAndServe(addr, r)
 }
 
-func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+func (s *Server) requireAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		userId := s.session.GetInt64(r.Context(), "user_id")
 		if userId == 0 {
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
 		next.ServeHTTP(w, r)
-	}
+	})
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -205,23 +212,23 @@ func (s *Server) handleAddFeed(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteFeed(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	feedId := chi.URLParam(r, "feedId")
+	if feedId == "" {
+		http.Error(w, "Invalid feed ID", http.StatusBadRequest)
 		return
 	}
 
-	// TODO: Implement feed deletion
+	if err := s.store.DeleteFeed(feedId); err != nil {
+		http.Error(w, "Error deleting feed", http.StatusInternalServerError)
+		return
+	}
+
 	http.Redirect(w, r, "/settings", http.StatusSeeOther)
 }
 
 func (s *Server) handleMarkPostSeen(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	postId, err := strconv.ParseInt(r.URL.Path[len("/posts/"):], 10, 64)
-	if err != nil {
+	postId := chi.URLParam(r, "postId")
+	if postId == "" {
 		http.Error(w, "Invalid post ID", http.StatusBadRequest)
 		return
 	}
@@ -236,13 +243,8 @@ func (s *Server) handleMarkPostSeen(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleMarkAllSeen(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	feedId, err := strconv.ParseInt(r.URL.Path[len("/feeds/"):], 10, 64)
-	if err != nil {
+	feedId := chi.URLParam(r, "feedId")
+	if feedId == "" {
 		http.Error(w, "Invalid feed ID", http.StatusBadRequest)
 		return
 	}

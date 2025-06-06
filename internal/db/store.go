@@ -181,7 +181,7 @@ type Post struct {
 }
 
 // Seen state methods
-func (store *Store) MarkPostAsSeen(userId, postId int64) error {
+func (store *Store) MarkPostAsSeen(userId int64, postId string) error {
 	_, err := store.db.Exec(`
 		INSERT INTO user_post_states (user_id, post_id, seen)
 		VALUES (?, ?, 1)
@@ -193,7 +193,7 @@ func (store *Store) MarkPostAsSeen(userId, postId int64) error {
 	return nil
 }
 
-func (store *Store) MarkAllFeedPostsAsSeen(userId, feedId int64) error {
+func (store *Store) MarkAllFeedPostsAsSeen(userId int64, feedId string) error {
 	_, err := store.db.Exec(`
 		INSERT INTO user_post_states (user_id, post_id, seen)
 		SELECT ?, p.id, 1
@@ -256,6 +256,18 @@ func (store *Store) UpdateFeedLastFetched(feedId int64, timestamp time.Time) err
 	`, timestamp, feedId)
 	if err != nil {
 		return fmt.Errorf("error updating feed last fetched: %w", err)
+	}
+	return nil
+}
+
+// DeleteFeed deletes a feed and all its associated data
+func (store *Store) DeleteFeed(feedId string) error {
+	_, err := store.db.Exec(`
+		DELETE FROM feeds
+		WHERE id = ?
+	`, feedId)
+	if err != nil {
+		return fmt.Errorf("error deleting feed: %w", err)
 	}
 	return nil
 }
