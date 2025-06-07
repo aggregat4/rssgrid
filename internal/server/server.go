@@ -5,42 +5,44 @@ import (
 	"html/template"
 	"log"
 	"net/http"
-	"time"
 
-	"github.com/alexedwards/scs/v2"
 	"github.com/boris/go-rssgrid/internal/auth"
 	"github.com/boris/go-rssgrid/internal/db"
 	"github.com/boris/go-rssgrid/internal/feed"
+	"github.com/boris/go-rssgrid/internal/templates"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/gorilla/sessions"
 )
 
 type Server struct {
 	store     *db.Store
 	oidc      *auth.OIDCProvider
-	session   *scs.SessionManager
+	sessions  *sessions.CookieStore
 	fetcher   *feed.Fetcher
 	templates *template.Template
 }
 
 func NewServer(store *db.Store, oidc *auth.OIDCProvider, sessionKey string) (*Server, error) {
-	// Initialize session manager
-	session := scs.New()
-	session.Lifetime = 24 * time.Hour
-	session.Cookie.Secure = true
-	session.Cookie.HttpOnly = true
-	session.Cookie.SameSite = http.SameSiteLaxMode
+	// Initialize session store
+	sessionStore := sessions.NewCookieStore([]byte(sessionKey))
+	sessionStore.Options = &sessions.Options{
+		Path:     "/",
+		MaxAge:   30 * 24 * 60 * 60, // 30 days
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	}
 
-	// Load templates
-	templates, err := template.ParseGlob("internal/templates/*.html")
+	// Load templates from embedded filesystem
+	templates, err := templates.LoadTemplates()
 	if err != nil {
 		return nil, fmt.Errorf("error loading templates: %w", err)
 	}
-
 	return &Server{
 		store:     store,
 		oidc:      oidc,
-		session:   session,
+		sessions:  sessionStore,
 		fetcher:   feed.NewFetcher(),
 		templates: templates,
 	}, nil
@@ -52,7 +54,6 @@ func (s *Server) Start(addr string) error {
 	// Middleware
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-	r.Use(s.session.LoadAndSave)
 
 	// Public routes
 	r.Get("/login", s.handleLogin)
@@ -76,8 +77,14 @@ func (s *Server) Start(addr string) error {
 
 func (s *Server) requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		userId := s.session.GetInt64(r.Context(), "user_id")
-		if userId == 0 {
+		session, err := s.sessions.Get(r, "user_session")
+		if err != nil {
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+
+		userId, ok := session.Values["user_id"].(int64)
+		if !ok || userId == 0 {
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
@@ -116,12 +123,20 @@ func (s *Server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.session.Put(r.Context(), "user_id", userId)
+	session, _ := s.sessions.Get(r, "user_session")
+	session.Values["user_id"] = userId
+	if err := session.Save(r, w); err != nil {
+		http.Error(w, "Error saving session", http.StatusInternalServerError)
+		return
+	}
+
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
-	userId := s.session.GetInt64(r.Context(), "user_id")
+	session, _ := s.sessions.Get(r, "user_session")
+	userId := session.Values["user_id"].(int64)
+
 	feeds, err := s.store.GetUserFeeds(userId)
 	if err != nil {
 		http.Error(w, "Error fetching feeds", http.StatusInternalServerError)
@@ -156,7 +171,9 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
-	userId := s.session.GetInt64(r.Context(), "user_id")
+	session, _ := s.sessions.Get(r, "user_session")
+	userId := session.Values["user_id"].(int64)
+
 	feeds, err := s.store.GetUserFeeds(userId)
 	if err != nil {
 		http.Error(w, "Error fetching feeds", http.StatusInternalServerError)
@@ -233,7 +250,9 @@ func (s *Server) handleMarkPostSeen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userId := s.session.GetInt64(r.Context(), "user_id")
+	session, _ := s.sessions.Get(r, "user_session")
+	userId := session.Values["user_id"].(int64)
+
 	if err := s.store.MarkPostAsSeen(userId, postId); err != nil {
 		http.Error(w, "Error marking post as seen", http.StatusInternalServerError)
 		return
@@ -249,7 +268,9 @@ func (s *Server) handleMarkAllSeen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userId := s.session.GetInt64(r.Context(), "user_id")
+	session, _ := s.sessions.Get(r, "user_session")
+	userId := session.Values["user_id"].(int64)
+
 	if err := s.store.MarkAllFeedPostsAsSeen(userId, feedId); err != nil {
 		http.Error(w, "Error marking all posts as seen", http.StatusInternalServerError)
 		return
