@@ -10,7 +10,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.28
 	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/mmcdole/gofeed v1.3.0
-	golang.org/x/oauth2 v0.30.0
+	golang.org/x/oauth2 v0.30.0 // indirect
 )
 
 require (
