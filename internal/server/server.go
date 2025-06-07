@@ -6,24 +6,25 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/boris/go-rssgrid/internal/auth"
+	baseliboidc "github.com/aggregat4/go-baselib-services/v3/oidc"
 	"github.com/boris/go-rssgrid/internal/db"
 	"github.com/boris/go-rssgrid/internal/feed"
 	"github.com/boris/go-rssgrid/internal/templates"
+	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/gorilla/sessions"
 )
 
 type Server struct {
-	store     *db.Store
-	oidc      *auth.OIDCProvider
-	sessions  *sessions.CookieStore
-	fetcher   *feed.Fetcher
-	templates *template.Template
+	store      *db.Store
+	sessions   *sessions.CookieStore
+	fetcher    *feed.Fetcher
+	templates  *template.Template
+	oidcConfig *baseliboidc.OidcConfiguration
 }
 
-func NewServer(store *db.Store, oidc *auth.OIDCProvider, sessionKey string) (*Server, error) {
+func NewServer(store *db.Store, oidcConfig *baseliboidc.OidcConfiguration, sessionKey string) (*Server, error) {
 	// Initialize session store
 	sessionStore := sessions.NewCookieStore([]byte(sessionKey))
 	sessionStore.Options = &sessions.Options{
@@ -40,29 +41,46 @@ func NewServer(store *db.Store, oidc *auth.OIDCProvider, sessionKey string) (*Se
 		return nil, fmt.Errorf("error loading templates: %w", err)
 	}
 	return &Server{
-		store:     store,
-		oidc:      oidc,
-		sessions:  sessionStore,
-		fetcher:   feed.NewFetcher(),
-		templates: templates,
+		store:      store,
+		sessions:   sessionStore,
+		fetcher:    feed.NewFetcher(),
+		templates:  templates,
+		oidcConfig: oidcConfig,
 	}, nil
 }
 
 func (s *Server) Start(addr string) error {
+	oidcAuthenticationMiddleware := s.oidcConfig.CreateOidcAuthenticationMiddleware(
+		func(r *http.Request) bool {
+			return false //TODO: isAuthenticated function
+		},
+		func(r *http.Request) bool {
+			return true //TODO: skipper function
+		},
+	)
+
+	oidcCallbackHandler := s.oidcConfig.CreateOidcCallbackHandler(
+		baseliboidc.CreateSTDSessionBasedOidcDelegate(
+			func(w http.ResponseWriter, r *http.Request, idToken *oidc.IDToken) error {
+				// TODO: id token handling
+				return nil
+			},
+			"/fallbackurl", // TODO: fallback URI
+		),
+	)
+
 	r := chi.NewRouter()
 
 	// Middleware
+	r.Use(oidcAuthenticationMiddleware)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
 	// Public routes
-	r.Get("/login", s.handleLogin)
-	r.Get("/auth/callback", s.handleAuthCallback)
+	r.Get("/auth/callback", oidcCallbackHandler)
 
 	// Protected routes
 	r.Group(func(r chi.Router) {
-		r.Use(s.requireAuth)
-
 		r.Get("/", s.handleDashboard)
 		r.Get("/settings", s.handleSettings)
 		r.Post("/settings/feeds", s.handleAddFeed)
@@ -73,64 +91,6 @@ func (s *Server) Start(addr string) error {
 
 	log.Printf("Starting server on %s", addr)
 	return http.ListenAndServe(addr, r)
-}
-
-func (s *Server) requireAuth(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		session, err := s.sessions.Get(r, "user_session")
-		if err != nil {
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
-			return
-		}
-
-		userId, ok := session.Values["user_id"].(int64)
-		if !ok || userId == 0 {
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	authURL, err := s.oidc.GenerateAuthURL(w, r)
-	if err != nil {
-		http.Error(w, "Error generating auth URL", http.StatusInternalServerError)
-		return
-	}
-	http.Redirect(w, r, authURL, http.StatusSeeOther)
-}
-
-func (s *Server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
-	token, err := s.oidc.VerifyCallback(r)
-	if err != nil {
-		http.Error(w, "Error verifying callback", http.StatusBadRequest)
-		return
-	}
-
-	var claims struct {
-		Sub string `json:"sub"`
-		Iss string `json:"iss"`
-	}
-	if err := token.Claims(&claims); err != nil {
-		http.Error(w, "Error parsing claims", http.StatusInternalServerError)
-		return
-	}
-
-	userId, err := s.store.GetOrCreateUser(claims.Sub, claims.Iss)
-	if err != nil {
-		http.Error(w, "Error creating user", http.StatusInternalServerError)
-		return
-	}
-
-	session, _ := s.sessions.Get(r, "user_session")
-	session.Values["user_id"] = userId
-	if err := session.Save(r, w); err != nil {
-		http.Error(w, "Error saving session", http.StatusInternalServerError)
-		return
-	}
-
-	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {

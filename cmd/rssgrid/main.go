@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/boris/go-rssgrid/internal/auth"
+	baseliboidc "github.com/aggregat4/go-baselib-services/v3/oidc"
 	"github.com/boris/go-rssgrid/internal/db"
 	"github.com/boris/go-rssgrid/internal/feed"
 	"github.com/boris/go-rssgrid/internal/server"
@@ -23,13 +23,12 @@ func main() {
 	flag.Parse()
 
 	// Get required environment variables
-	oidcIssuer := os.Getenv("MONOCLE_OIDC_ISSUER_URL")
-	oidcClientID := os.Getenv("MONOCLE_OIDC_CLIENT_ID")
-	oidcClientSecret := os.Getenv("MONOCLE_OIDC_CLIENT_SECRET")
-	sessionKey := os.Getenv("MONOCLE_SESSION_KEY")
-
+	oidcIssuer := os.Getenv("RSSGRID_OIDC_ISSUER_URL")
+	oidcClientID := os.Getenv("RSSGRID_OIDC_CLIENT_ID")
+	oidcClientSecret := os.Getenv("RSSGRID_OIDC_CLIENT_SECRET")
+	sessionKey := os.Getenv("RSSGRID_SESSION_KEY")
 	if oidcIssuer == "" || oidcClientID == "" || oidcClientSecret == "" || sessionKey == "" {
-		log.Fatal("Missing required environment variables. Please set MONOCLE_OIDC_ISSUER_URL, MONOCLE_OIDC_CLIENT_ID, MONOCLE_OIDC_CLIENT_SECRET, and MONOCLE_SESSION_KEY")
+		log.Fatal("Missing required environment variables. Please set RSSGRID_OIDC_ISSUER_URL, RSSGRID_OIDC_CLIENT_ID, RSSGRID_OIDC_CLIENT_SECRET, and RSSGRID_SESSION_KEY")
 	}
 
 	// Initialize database
@@ -38,21 +37,15 @@ func main() {
 		log.Fatalf("Error initializing database: %v", err)
 	}
 
-	// Initialize OIDC provider
-	oidcConfig := auth.OIDCConfig{
-		IssuerURL:    oidcIssuer,
-		ClientID:     oidcClientID,
-		ClientSecret: oidcClientSecret,
-		RedirectURL:  "http://localhost:8080/auth/callback", // TODO: Make configurable
-	}
-
-	oidcProvider, err := auth.NewOIDCProvider(oidcConfig)
-	if err != nil {
-		log.Fatalf("Error initializing OIDC provider: %v", err)
-	}
+	oidcConfig := baseliboidc.CreateOidcConfiguration(
+		"https://idp.aggregat4.com",
+		"client_id",
+		"client_secret",
+		"http://localhost:8080/auth/callback",
+	)
 
 	// Initialize server
-	srv, err := server.NewServer(store, oidcProvider, sessionKey)
+	srv, err := server.NewServer(store, oidcConfig, sessionKey)
 	if err != nil {
 		log.Fatalf("Error initializing server: %v", err)
 	}
