@@ -73,11 +73,10 @@ The project structure is organized as follows:
 - `cmd/rssgrid/`: Main application entry point
 - `internal/`: Internal packages
   - `auth/`: OIDC authentication
-  - `db/`: Database operations
+  - `db/`: Database operations (with embedded migrations)
   - `feed/`: Feed fetching and parsing
   - `server/`: HTTP server and handlers
   - `templates/`: HTML templates
-- `migrations/`: Database migrations
 
 ## License
 

@@ -3,13 +3,75 @@ package db
 import (
 	"database/sql"
 	"fmt"
-	"io/ioutil"
-	"path/filepath"
 	"time"
 
+	"github.com/aggregat4/go-baselib/migrations"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/microcosm-cc/bluemonday"
 )
+
+var mymigrations = []migrations.Migration{
+	{
+		SequenceId: 1,
+		Sql: `
+-- Enable WAL mode on the database to allow for concurrent reads and writes
+PRAGMA journal_mode=WAL;
+PRAGMA foreign_keys = ON;
+
+-- Stores user information, linked to their OIDC identity.
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY,
+    oidc_subject TEXT NOT NULL, -- The 'sub' claim from the OIDC token
+    oidc_issuer TEXT NOT NULL,  -- The 'iss' claim from the OIDC token
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(oidc_subject, oidc_issuer)
+);
+
+-- Stores the master list of all feed sources.
+CREATE TABLE feeds (
+    id INTEGER PRIMARY KEY,
+    url TEXT NOT NULL UNIQUE,          -- The unique URL of the feed
+    title TEXT,                        -- The title of the feed, fetched from the feed itself
+    last_fetched_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- A junction table to link users to the feeds they subscribe to.
+CREATE TABLE user_feeds (
+    user_id INTEGER NOT NULL,
+    feed_id INTEGER NOT NULL,
+    grid_position INTEGER DEFAULT 0, -- For simple ordering
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY(feed_id) REFERENCES feeds(id) ON DELETE CASCADE,
+    PRIMARY KEY(user_id, feed_id)
+);
+
+-- Stores individual posts/articles from all feeds.
+CREATE TABLE posts (
+    id INTEGER PRIMARY KEY,
+    feed_id INTEGER NOT NULL,
+    guid TEXT NOT NULL,          -- Unique identifier from the feed (guid, id, or link)
+    title TEXT,
+    link TEXT NOT NULL,
+    published_at DATETIME,
+    content TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(feed_id) REFERENCES feeds(id) ON DELETE CASCADE,
+    UNIQUE(feed_id, guid)
+);
+
+-- Stores the "seen" state for each user and each post.
+CREATE TABLE user_post_states (
+    user_id INTEGER NOT NULL,
+    post_id INTEGER NOT NULL,
+    seen INTEGER NOT NULL DEFAULT 0, -- Using INTEGER 0 for false, 1 for true
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE,
+    PRIMARY KEY(user_id, post_id)
+);
+`,
+	},
+}
 
 type Store struct {
 	db *sql.DB
@@ -29,27 +91,7 @@ func (store *Store) InitAndVerifyDb(dbPath string) error {
 	if err != nil {
 		return fmt.Errorf("error opening database: %w", err)
 	}
-
-	// Enable WAL mode and foreign keys
-	if _, err := store.db.Exec(`
-		PRAGMA journal_mode=WAL;
-		PRAGMA foreign_keys = ON;
-	`); err != nil {
-		return fmt.Errorf("error setting pragmas: %w", err)
-	}
-
-	// Read and execute migration file
-	migrationPath := filepath.Join("migrations", "001_initial_schema.sql")
-	migrationSQL, err := ioutil.ReadFile(migrationPath)
-	if err != nil {
-		return fmt.Errorf("error reading migration file: %w", err)
-	}
-
-	if _, err := store.db.Exec(string(migrationSQL)); err != nil {
-		return fmt.Errorf("error executing migration: %w", err)
-	}
-
-	return nil
+	return migrations.MigrateSchema(store.db, mymigrations)
 }
 
 // User related methods
@@ -170,7 +212,6 @@ func (store *Store) GetFeedPosts(feedId int64, userId int64, limit int) ([]Post,
 	return posts, nil
 }
 
-// Post represents a post in the database
 type Post struct {
 	ID          int64
 	Title       string
@@ -180,7 +221,6 @@ type Post struct {
 	Seen        bool
 }
 
-// Seen state methods
 func (store *Store) MarkPostAsSeen(userId int64, postId string) error {
 	_, err := store.db.Exec(`
 		INSERT INTO user_post_states (user_id, post_id, seen)
@@ -207,7 +247,6 @@ func (store *Store) MarkAllFeedPostsAsSeen(userId int64, feedId string) error {
 	return nil
 }
 
-// GetAllFeeds returns all feeds in the database
 func (store *Store) GetAllFeeds() ([]Feed, error) {
 	rows, err := store.db.Query(`
 		SELECT id, url, title, last_fetched_at
@@ -234,7 +273,6 @@ func (store *Store) GetAllFeeds() ([]Feed, error) {
 	return feeds, nil
 }
 
-// UpdateFeedTitle updates the title of a feed
 func (store *Store) UpdateFeedTitle(feedId int64, title string) error {
 	_, err := store.db.Exec(`
 		UPDATE feeds
@@ -247,7 +285,6 @@ func (store *Store) UpdateFeedTitle(feedId int64, title string) error {
 	return nil
 }
 
-// UpdateFeedLastFetched updates the last_fetched_at timestamp of a feed
 func (store *Store) UpdateFeedLastFetched(feedId int64, timestamp time.Time) error {
 	_, err := store.db.Exec(`
 		UPDATE feeds
@@ -260,7 +297,6 @@ func (store *Store) UpdateFeedLastFetched(feedId int64, timestamp time.Time) err
 	return nil
 }
 
-// DeleteFeed deletes a feed and all its associated data
 func (store *Store) DeleteFeed(feedId string) error {
 	_, err := store.db.Exec(`
 		DELETE FROM feeds
