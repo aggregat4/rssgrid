@@ -24,6 +24,12 @@ type Server struct {
 	oidcConfig *baseliboidc.OidcConfiguration
 }
 
+// getUserID extracts the user ID from the session
+func (s *Server) getUserID(r *http.Request) int64 {
+	session, _ := s.sessions.Get(r, "user_session")
+	return session.Values["user_id"].(int64)
+}
+
 func NewServer(store *db.Store, oidcConfig *baseliboidc.OidcConfiguration, sessionKey string) (*Server, error) {
 	// Initialize session store
 	sessionStore := sessions.NewCookieStore([]byte(sessionKey))
@@ -63,8 +69,12 @@ func (s *Server) Start(addr string) error {
 	oidcCallbackHandler := s.oidcConfig.CreateOidcCallbackHandler(
 		baseliboidc.CreateSTDSessionBasedOidcDelegate(
 			func(w http.ResponseWriter, r *http.Request, idToken *oidc.IDToken) error {
+				userId, err := s.store.GetOrCreateUser(idToken.Subject, idToken.Issuer)
+				if err != nil {
+					return fmt.Errorf("error getting or creating user: %w", err)
+				}
 				session, _ := s.sessions.Get(r, "user_session")
-				session.Values["user_id"] = idToken.Subject
+				session.Values["user_id"] = userId
 				session.Save(r, w)
 				return nil
 			},
@@ -97,8 +107,7 @@ func (s *Server) Start(addr string) error {
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
-	session, _ := s.sessions.Get(r, "user_session")
-	userId := session.Values["user_id"].(int64)
+	userId := s.getUserID(r)
 
 	feeds, err := s.store.GetUserFeeds(userId)
 	if err != nil {
@@ -134,8 +143,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
-	session, _ := s.sessions.Get(r, "user_session")
-	userId := session.Values["user_id"].(int64)
+	userId := s.getUserID(r)
 
 	feeds, err := s.store.GetUserFeeds(userId)
 	if err != nil {
@@ -167,21 +175,18 @@ func (s *Server) handleAddFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fetch and validate feed
 	content, err := s.fetcher.FetchFeed(r.Context(), url)
 	if err != nil {
 		http.Error(w, "Invalid feed URL", http.StatusBadRequest)
 		return
 	}
 
-	// Add feed to database
 	feedId, err := s.store.AddFeed(url)
 	if err != nil {
 		http.Error(w, "Error adding feed", http.StatusInternalServerError)
 		return
 	}
 
-	// Add posts
 	for _, item := range content.Items {
 		if err := s.store.AddPost(feedId, item.GUID, item.Title, item.Link, item.PublishedAt, item.Content); err != nil {
 			log.Printf("Error adding post: %v", err)
@@ -213,8 +218,7 @@ func (s *Server) handleMarkPostSeen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, _ := s.sessions.Get(r, "user_session")
-	userId := session.Values["user_id"].(int64)
+	userId := s.getUserID(r)
 
 	if err := s.store.MarkPostAsSeen(userId, postId); err != nil {
 		http.Error(w, "Error marking post as seen", http.StatusInternalServerError)
@@ -231,8 +235,7 @@ func (s *Server) handleMarkAllSeen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, _ := s.sessions.Get(r, "user_session")
-	userId := session.Values["user_id"].(int64)
+	userId := s.getUserID(r)
 
 	if err := s.store.MarkAllFeedPostsAsSeen(userId, feedId); err != nil {
 		http.Error(w, "Error marking all posts as seen", http.StatusInternalServerError)
