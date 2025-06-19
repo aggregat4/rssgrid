@@ -10,7 +10,7 @@ import (
 
 type Updater struct {
 	store   *db.Store
-	fetcher *CacheFetcher
+	fetcher *Fetcher
 	ticker  *time.Ticker
 	done    chan bool
 }
@@ -18,7 +18,7 @@ type Updater struct {
 func NewUpdater(store *db.Store, interval time.Duration) *Updater {
 	return &Updater{
 		store:   store,
-		fetcher: NewCacheFetcher(store),
+		fetcher: NewFetcher(store),
 		ticker:  time.NewTicker(interval),
 		done:    make(chan bool),
 	}
@@ -56,27 +56,27 @@ func (u *Updater) updateFeeds(ctx context.Context) error {
 
 	for _, feed := range feeds {
 		// Fetch and parse feed with cache awareness
-		result, err := u.fetcher.FetchFeedWithCache(ctx, feed.URL)
+		content, _, err := u.fetcher.FetchFeedForUpdate(ctx, feed.URL)
 		if err != nil {
 			log.Printf("Error fetching feed %s: %v", feed.URL, err)
 			continue
 		}
 
 		// If no content returned, feed was cached or not modified
-		if result.Content == nil {
+		if content == nil {
 			log.Printf("Feed %s was cached or not modified, skipping", feed.URL)
 			continue
 		}
 
 		// Update feed title if it has changed
-		if result.Content.Title != feed.Title {
-			if err := u.store.UpdateFeedTitle(feed.ID, result.Content.Title); err != nil {
+		if content.Title != feed.Title {
+			if err := u.store.UpdateFeedTitle(feed.ID, content.Title); err != nil {
 				log.Printf("Error updating feed title: %v", err)
 			}
 		}
 
 		// Add new posts
-		for _, item := range result.Content.Items {
+		for _, item := range content.Items {
 			if err := u.store.AddPost(feed.ID, item.GUID, item.Title, item.Link, item.PublishedAt, item.Content); err != nil {
 				log.Printf("Error adding post: %v", err)
 			}
@@ -85,13 +85,6 @@ func (u *Updater) updateFeeds(ctx context.Context) error {
 		// Update last fetched timestamp
 		if err := u.store.UpdateFeedLastFetched(feed.ID, time.Now()); err != nil {
 			log.Printf("Error updating feed last fetched: %v", err)
-		}
-
-		// Update cache information if we should cache
-		if result.ShouldCache && result.CacheInfo != nil {
-			if err := u.fetcher.UpdateFeedCache(feed.ID, result.CacheInfo); err != nil {
-				log.Printf("Error updating feed cache info: %v", err)
-			}
 		}
 	}
 

@@ -8,7 +8,7 @@ import (
 	"github.com/aggregat4/rssgrid/internal/db"
 )
 
-func TestCacheFetcher_ShouldSkipFetch(t *testing.T) {
+func TestFetcher_ShouldSkipFetch(t *testing.T) {
 	// Create a mock feed with cache info
 	feed := &db.Feed{
 		ID:         1,
@@ -17,25 +17,26 @@ func TestCacheFetcher_ShouldSkipFetch(t *testing.T) {
 	}
 
 	// Should skip fetch when cache is still valid
-	if !shouldSkipFetch(feed) {
+	fetcher := &Fetcher{}
+	if !fetcher.shouldSkipFetch(feed) {
 		t.Error("Expected shouldSkipFetch to return true when cache is still valid")
 	}
 
 	// Should not skip fetch when cache has expired
 	feed.CacheUntil = time.Now().Add(-1 * time.Hour) // Cache expired 1 hour ago
-	if shouldSkipFetch(feed) {
+	if fetcher.shouldSkipFetch(feed) {
 		t.Error("Expected shouldSkipFetch to return false when cache has expired")
 	}
 
 	// Should not skip fetch when no cache info
 	feed.CacheUntil = time.Time{} // Zero time
-	if shouldSkipFetch(feed) {
+	if fetcher.shouldSkipFetch(feed) {
 		t.Error("Expected shouldSkipFetch to return false when no cache info")
 	}
 }
 
-func TestCacheFetcher_ExtractCacheInfo(t *testing.T) {
-	fetcher := &CacheFetcher{}
+func TestFetcher_ExtractCacheInfo(t *testing.T) {
+	fetcher := &Fetcher{}
 
 	// Test ETag extraction
 	headers := http.Header{}
@@ -45,24 +46,24 @@ func TestCacheFetcher_ExtractCacheInfo(t *testing.T) {
 
 	cacheInfo := fetcher.extractCacheInfo(headers)
 
-	if cacheInfo.ETag != `"abc123"` {
-		t.Errorf("Expected ETag to be \"abc123\", got %s", cacheInfo.ETag)
+	if cacheInfo.etag != `"abc123"` {
+		t.Errorf("Expected ETag to be \"abc123\", got %s", cacheInfo.etag)
 	}
 
-	if cacheInfo.LastModified != "Wed, 21 Oct 2015 07:28:00 GMT" {
-		t.Errorf("Expected Last-Modified to be \"Wed, 21 Oct 2015 07:28:00 GMT\", got %s", cacheInfo.LastModified)
+	if cacheInfo.lastModified != "Wed, 21 Oct 2015 07:28:00 GMT" {
+		t.Errorf("Expected Last-Modified to be \"Wed, 21 Oct 2015 07:28:00 GMT\", got %s", cacheInfo.lastModified)
 	}
 
 	// Check that cache_until is set to a future time (within reasonable bounds)
 	expectedMin := time.Now().Add(3599 * time.Second) // 1 hour - 1 second
 	expectedMax := time.Now().Add(3601 * time.Second) // 1 hour + 1 second
-	if cacheInfo.CacheUntil.Before(expectedMin) || cacheInfo.CacheUntil.After(expectedMax) {
-		t.Errorf("Expected CacheUntil to be around 1 hour from now, got %v", cacheInfo.CacheUntil)
+	if cacheInfo.cacheUntil.Before(expectedMin) || cacheInfo.cacheUntil.After(expectedMax) {
+		t.Errorf("Expected CacheUntil to be around 1 hour from now, got %v", cacheInfo.cacheUntil)
 	}
 }
 
-func TestCacheFetcher_ParseMaxAge(t *testing.T) {
-	fetcher := &CacheFetcher{}
+func TestFetcher_ParseMaxAge(t *testing.T) {
+	fetcher := &Fetcher{}
 
 	tests := []struct {
 		input    string

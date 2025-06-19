@@ -12,14 +12,14 @@ import (
 	"github.com/mmcdole/gofeed"
 )
 
-type CacheFetcher struct {
+type Fetcher struct {
 	client *http.Client
 	parser *gofeed.Parser
 	store  *db.Store
 }
 
-func NewCacheFetcher(store *db.Store) *CacheFetcher {
-	return &CacheFetcher{
+func NewFetcher(store *db.Store) *Fetcher {
+	return &Fetcher{
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -42,14 +42,53 @@ type FeedItem struct {
 	Content     string
 }
 
-type FetchResult struct {
-	Content     *FeedContent
-	ShouldCache bool
-	CacheInfo   *CacheInfo
-	Error       error
+// fetchResult is internal to the fetcher - caching details are hidden from callers
+type fetchResult struct {
+	content     *FeedContent
+	shouldCache bool
+	cacheInfo   *cacheInfo
+	error       error
 }
 
-func (f *CacheFetcher) FetchFeedWithCache(ctx context.Context, url string) (*FetchResult, error) {
+// cacheInfo is internal to the fetcher
+type cacheInfo struct {
+	etag         string
+	lastModified string
+	cacheUntil   time.Time
+}
+
+func (f *Fetcher) FetchFeed(ctx context.Context, url string) (*FeedContent, error) {
+	result, err := f.fetchFeedWithCache(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+	return result.content, nil
+}
+
+// FetchFeedForUpdate is used internally by the updater to get both content and cache info
+func (f *Fetcher) FetchFeedForUpdate(ctx context.Context, url string) (*FeedContent, bool, error) {
+	result, err := f.fetchFeedWithCache(ctx, url)
+	if err != nil {
+		return nil, false, err
+	}
+
+	// Update cache if we should cache and have cache info
+	if result.shouldCache && result.cacheInfo != nil {
+		// We need to get the feed ID to update cache info
+		feed, err := f.store.GetFeedByURL(url)
+		if err == nil && feed != nil {
+			if err := f.updateFeedCache(feed.ID, result.cacheInfo); err != nil {
+				// Log error but don't fail the fetch
+				fmt.Printf("Error updating feed cache info: %v\n", err)
+			}
+		}
+	}
+
+	return result.content, result.shouldCache, nil
+}
+
+// fetchFeedWithCache is the internal method that handles caching logic
+func (f *Fetcher) fetchFeedWithCache(ctx context.Context, url string) (*fetchResult, error) {
 	// Check if we have cached information for this feed
 	feed, err := f.store.GetFeedByURL(url)
 	if err != nil {
@@ -58,11 +97,11 @@ func (f *CacheFetcher) FetchFeedWithCache(ctx context.Context, url string) (*Fet
 
 	// If we have cache info, check if we should skip fetching
 	if feed != nil {
-		if shouldSkipFetch(feed) {
-			return &FetchResult{
-				Content:     nil,
-				ShouldCache: false,
-				Error:       nil,
+		if f.shouldSkipFetch(feed) {
+			return &fetchResult{
+				content:     nil,
+				shouldCache: false,
+				error:       nil,
 			}, nil
 		}
 	}
@@ -95,10 +134,10 @@ func (f *CacheFetcher) FetchFeedWithCache(ctx context.Context, url string) (*Fet
 
 	// Handle 304 Not Modified
 	if resp.StatusCode == http.StatusNotModified {
-		return &FetchResult{
-			Content:     nil,
-			ShouldCache: false,
-			Error:       nil,
+		return &fetchResult{
+			content:     nil,
+			shouldCache: false,
+			error:       nil,
 		}, nil
 	}
 
@@ -155,53 +194,47 @@ func (f *CacheFetcher) FetchFeedWithCache(ctx context.Context, url string) (*Fet
 	// Extract cache information from response headers
 	cacheInfo := f.extractCacheInfo(resp.Header)
 
-	return &FetchResult{
-		Content:     content,
-		ShouldCache: true,
-		CacheInfo:   cacheInfo,
-		Error:       nil,
+	return &fetchResult{
+		content:     content,
+		shouldCache: true,
+		cacheInfo:   cacheInfo,
+		error:       nil,
 	}, nil
 }
 
-type CacheInfo struct {
-	ETag         string
-	LastModified string
-	CacheUntil   time.Time
-}
-
-func (f *CacheFetcher) extractCacheInfo(headers http.Header) *CacheInfo {
-	info := &CacheInfo{
-		CacheUntil: time.Now().Add(1 * time.Hour), // Default to 1 hour
+func (f *Fetcher) extractCacheInfo(headers http.Header) *cacheInfo {
+	info := &cacheInfo{
+		cacheUntil: time.Now().Add(1 * time.Hour), // Default to 1 hour
 	}
 
 	// Extract ETag
 	if etag := headers.Get("ETag"); etag != "" {
-		info.ETag = etag
+		info.etag = etag
 	}
 
 	// Extract Last-Modified
 	if lastModified := headers.Get("Last-Modified"); lastModified != "" {
-		info.LastModified = lastModified
+		info.lastModified = lastModified
 	}
 
 	// Parse Cache-Control header
 	if cacheControl := headers.Get("Cache-Control"); cacheControl != "" {
 		if maxAge := f.parseMaxAge(cacheControl); maxAge > 0 {
-			info.CacheUntil = time.Now().Add(time.Duration(maxAge) * time.Second)
+			info.cacheUntil = time.Now().Add(time.Duration(maxAge) * time.Second)
 		}
 	}
 
 	// Parse Expires header (takes precedence over Cache-Control)
 	if expires := headers.Get("Expires"); expires != "" {
 		if parsedTime, err := time.Parse(time.RFC1123, expires); err == nil {
-			info.CacheUntil = parsedTime
+			info.cacheUntil = parsedTime
 		}
 	}
 
 	return info
 }
 
-func (f *CacheFetcher) parseMaxAge(cacheControl string) int {
+func (f *Fetcher) parseMaxAge(cacheControl string) int {
 	parts := strings.Split(cacheControl, ",")
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
@@ -216,7 +249,7 @@ func (f *CacheFetcher) parseMaxAge(cacheControl string) int {
 	return 0
 }
 
-func shouldSkipFetch(feed *db.Feed) bool {
+func (f *Fetcher) shouldSkipFetch(feed *db.Feed) bool {
 	// Check if cache hasn't expired yet
 	if !feed.CacheUntil.IsZero() && time.Now().Before(feed.CacheUntil) {
 		return true
@@ -224,7 +257,7 @@ func shouldSkipFetch(feed *db.Feed) bool {
 	return false
 }
 
-// UpdateFeedCache updates the cache information for a feed in the database
-func (f *CacheFetcher) UpdateFeedCache(feedID int64, cacheInfo *CacheInfo) error {
-	return f.store.UpdateFeedCacheInfo(feedID, cacheInfo.ETag, cacheInfo.LastModified, cacheInfo.CacheUntil)
+// updateFeedCache is internal to the fetcher
+func (f *Fetcher) updateFeedCache(feedID int64, cacheInfo *cacheInfo) error {
+	return f.store.UpdateFeedCacheInfo(feedID, cacheInfo.etag, cacheInfo.lastModified, cacheInfo.cacheUntil)
 }

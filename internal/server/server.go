@@ -19,7 +19,7 @@ import (
 type Server struct {
 	store      *db.Store
 	sessions   *sessions.CookieStore
-	fetcher    *feed.CacheFetcher
+	fetcher    *feed.Fetcher
 	templates  *template.Template
 	oidcConfig *baseliboidc.OidcConfiguration
 }
@@ -31,17 +31,7 @@ func (s *Server) getUserID(r *http.Request) int64 {
 }
 
 func NewServer(store *db.Store, oidcConfig *baseliboidc.OidcConfiguration, sessionKey string) (*Server, error) {
-	// Initialize session store
 	sessionStore := sessions.NewCookieStore([]byte(sessionKey))
-	sessionStore.Options = &sessions.Options{
-		Path:     "/",
-		MaxAge:   30 * 24 * 60 * 60, // 30 days
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteLaxMode,
-	}
-
-	// Load templates from embedded filesystem
 	templates, err := templates.LoadTemplates()
 	if err != nil {
 		return nil, fmt.Errorf("error loading templates: %w", err)
@@ -49,7 +39,7 @@ func NewServer(store *db.Store, oidcConfig *baseliboidc.OidcConfiguration, sessi
 	return &Server{
 		store:      store,
 		sessions:   sessionStore,
-		fetcher:    feed.NewCacheFetcher(store),
+		fetcher:    feed.NewFetcher(store),
 		templates:  templates,
 		oidcConfig: oidcConfig,
 	}, nil
@@ -175,15 +165,9 @@ func (s *Server) handleAddFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.fetcher.FetchFeedWithCache(r.Context(), url)
+	content, err := s.fetcher.FetchFeed(r.Context(), url)
 	if err != nil {
 		http.Error(w, "Invalid feed URL", http.StatusBadRequest)
-		return
-	}
-
-	// Check if we got content back
-	if result.Content == nil {
-		http.Error(w, "Feed returned no content", http.StatusBadRequest)
 		return
 	}
 
@@ -194,23 +178,16 @@ func (s *Server) handleAddFeed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update feed title
-	if result.Content.Title != "" {
-		if err := s.store.UpdateFeedTitle(feedId, result.Content.Title); err != nil {
+	if content.Title != "" {
+		if err := s.store.UpdateFeedTitle(feedId, content.Title); err != nil {
 			log.Printf("Error updating feed title: %v", err)
 		}
 	}
 
 	// Add posts
-	for _, item := range result.Content.Items {
+	for _, item := range content.Items {
 		if err := s.store.AddPost(feedId, item.GUID, item.Title, item.Link, item.PublishedAt, item.Content); err != nil {
 			log.Printf("Error adding post: %v", err)
-		}
-	}
-
-	// Update cache information if we should cache
-	if result.ShouldCache && result.CacheInfo != nil {
-		if err := s.fetcher.UpdateFeedCache(feedId, result.CacheInfo); err != nil {
-			log.Printf("Error updating feed cache info: %v", err)
 		}
 	}
 
