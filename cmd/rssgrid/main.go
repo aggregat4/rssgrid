@@ -2,56 +2,47 @@ package main
 
 import (
 	"context"
-	"flag"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	baseliboidc "github.com/aggregat4/go-baselib-services/v3/oidc"
+	"github.com/boris/go-rssgrid/internal/config"
 	"github.com/boris/go-rssgrid/internal/db"
 	"github.com/boris/go-rssgrid/internal/feed"
 	"github.com/boris/go-rssgrid/internal/server"
 )
 
 func main() {
-	// Parse command line flags
-	addr := flag.String("addr", ":8080", "HTTP server address")
-	dbPath := flag.String("db", "rssgrid.db", "Path to SQLite database file")
-	updateInterval := flag.Duration("update-interval", 30*time.Minute, "Feed update interval")
-	flag.Parse()
-
-	// Get required environment variables
-	oidcIssuer := os.Getenv("RSSGRID_OIDC_ISSUER_URL")
-	oidcClientID := os.Getenv("RSSGRID_OIDC_CLIENT_ID")
-	oidcClientSecret := os.Getenv("RSSGRID_OIDC_CLIENT_SECRET")
-	sessionKey := os.Getenv("RSSGRID_SESSION_KEY")
-	if oidcIssuer == "" || oidcClientID == "" || oidcClientSecret == "" || sessionKey == "" {
-		log.Fatal("Missing required environment variables. Please set RSSGRID_OIDC_ISSUER_URL, RSSGRID_OIDC_CLIENT_ID, RSSGRID_OIDC_CLIENT_SECRET, and RSSGRID_SESSION_KEY")
+	// Load configuration
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Error loading configuration: %v", err)
 	}
 
 	// Initialize database
-	store, err := db.NewStore(*dbPath)
+	store, err := db.NewStore(cfg.DBPath)
 	if err != nil {
 		log.Fatalf("Error initializing database: %v", err)
 	}
 
+	// Create OIDC configuration
 	oidcConfig := baseliboidc.CreateOidcConfiguration(
-		"https://idp.aggregat4.com",
-		"client_id",
-		"client_secret",
-		"http://localhost:8080/auth/callback",
+		cfg.OIDC.IssuerURL,
+		cfg.OIDC.ClientID,
+		cfg.OIDC.ClientSecret,
+		cfg.OIDC.RedirectURL,
 	)
 
 	// Initialize server
-	srv, err := server.NewServer(store, oidcConfig, sessionKey)
+	srv, err := server.NewServer(store, oidcConfig, cfg.SessionKey)
 	if err != nil {
 		log.Fatalf("Error initializing server: %v", err)
 	}
 
 	// Initialize feed updater
-	updater := feed.NewUpdater(store, *updateInterval)
+	updater := feed.NewUpdater(store, cfg.UpdateInterval)
 
 	// Create context that will be canceled on shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -73,8 +64,8 @@ func main() {
 	}()
 
 	// Start server
-	log.Printf("Starting server on %s", *addr)
-	if err := srv.Start(*addr); err != nil {
+	log.Printf("Starting server on %s", cfg.Addr)
+	if err := srv.Start(cfg.Addr); err != nil {
 		log.Fatalf("Error starting server: %v", err)
 	}
 }

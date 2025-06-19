@@ -1,0 +1,26 @@
+{
+  // RSSGrid Configuration File
+  // Copy this file to ~/.config/rssgrid/rssgrid.json and customize as needed
+
+  // HTTP server address to bind to
+  "addr": ":8080",
+
+  // Path to SQLite database file
+  "db_path": "rssgrid.db",
+
+  // Feed update interval (e.g., "30m", "1h", "2h")
+  "update_interval": "30m",
+
+  // Session encryption key (can also be set via RSSGRID_SESSION_KEY env var)
+  "session_key": "your-secure-session-key",
+
+  "oidc": {
+    // OIDC provider configuration
+    // These can also be set via environment variables:
+    // RSSGRID_OIDC_ISSUER_URL, RSSGRID_OIDC_CLIENT_ID, RSSGRID_OIDC_CLIENT_SECRET
+    "issuer_url": "https://your-oidc-provider.com",
+    "client_id": "your-client-id",
+    "client_secret": "your-client-secret",
+    "redirect_url": "http://localhost:8080/auth/callback"
+  }
+} 

@@ -45,3 +45,14 @@ require (
 	golang.org/x/net v0.41.0 // indirect
 	golang.org/x/text v0.26.0 // indirect
 )
+
+require (
+	github.com/kirsle/configdir v0.0.0-20170128060238-e45d2f54772f
+	github.com/kkyr/fig v0.5.0
+)
+
+require (
+	github.com/mitchellh/mapstructure v1.5.0 // indirect
+	github.com/pelletier/go-toml/v2 v2.1.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
+)
