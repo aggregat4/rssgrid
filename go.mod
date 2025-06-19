@@ -1,4 +1,4 @@
-module github.com/boris/go-rssgrid
+module github.com/aggregat4/rssgrid
 
 go 1.24
 

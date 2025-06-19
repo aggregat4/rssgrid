@@ -33,6 +33,9 @@ CREATE TABLE feeds (
     url TEXT NOT NULL UNIQUE,          -- The unique URL of the feed
     title TEXT,                        -- The title of the feed, fetched from the feed itself
     last_fetched_at DATETIME,
+    etag TEXT,                         -- HTTP ETag for cache validation
+    last_modified TEXT,                -- HTTP Last-Modified header
+    cache_until DATETIME,              -- When the cache expires (based on Cache-Control/Expires)
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -133,7 +136,7 @@ func (store *Store) AddFeed(url string) (int64, error) {
 
 func (store *Store) GetUserFeeds(userId int64) ([]Feed, error) {
 	rows, err := store.db.Query(`
-		SELECT f.id, f.url, f.title, f.last_fetched_at, uf.grid_position
+		SELECT f.id, f.url, f.title, f.last_fetched_at, f.etag, f.last_modified, f.cache_until, uf.grid_position
 		FROM feeds f
 		JOIN user_feeds uf ON f.id = uf.feed_id
 		WHERE uf.user_id = ?
@@ -148,12 +151,24 @@ func (store *Store) GetUserFeeds(userId int64) ([]Feed, error) {
 	for rows.Next() {
 		var f Feed
 		var lastFetched sql.NullTime
-		err := rows.Scan(&f.ID, &f.URL, &f.Title, &lastFetched, &f.GridPosition)
+		var etag sql.NullString
+		var lastModified sql.NullString
+		var cacheUntil sql.NullTime
+		err := rows.Scan(&f.ID, &f.URL, &f.Title, &lastFetched, &etag, &lastModified, &cacheUntil, &f.GridPosition)
 		if err != nil {
 			return nil, fmt.Errorf("error scanning feed: %w", err)
 		}
 		if lastFetched.Valid {
 			f.LastFetchedAt = lastFetched.Time
+		}
+		if etag.Valid {
+			f.ETag = etag.String
+		}
+		if lastModified.Valid {
+			f.LastModified = lastModified.String
+		}
+		if cacheUntil.Valid {
+			f.CacheUntil = cacheUntil.Time
 		}
 		feeds = append(feeds, f)
 	}
@@ -165,6 +180,9 @@ type Feed struct {
 	URL           string
 	Title         string
 	LastFetchedAt time.Time
+	ETag          string
+	LastModified  string
+	CacheUntil    time.Time
 	GridPosition  int
 }
 
@@ -247,7 +265,7 @@ func (store *Store) MarkAllFeedPostsAsSeen(userId int64, feedId string) error {
 
 func (store *Store) GetAllFeeds() ([]Feed, error) {
 	rows, err := store.db.Query(`
-		SELECT id, url, title, last_fetched_at
+		SELECT id, url, title, last_fetched_at, etag, last_modified, cache_until
 		FROM feeds
 	`)
 	if err != nil {
@@ -259,12 +277,24 @@ func (store *Store) GetAllFeeds() ([]Feed, error) {
 	for rows.Next() {
 		var f Feed
 		var lastFetched sql.NullTime
-		err := rows.Scan(&f.ID, &f.URL, &f.Title, &lastFetched)
+		var etag sql.NullString
+		var lastModified sql.NullString
+		var cacheUntil sql.NullTime
+		err := rows.Scan(&f.ID, &f.URL, &f.Title, &lastFetched, &etag, &lastModified, &cacheUntil)
 		if err != nil {
 			return nil, fmt.Errorf("error scanning feed: %w", err)
 		}
 		if lastFetched.Valid {
 			f.LastFetchedAt = lastFetched.Time
+		}
+		if etag.Valid {
+			f.ETag = etag.String
+		}
+		if lastModified.Valid {
+			f.LastModified = lastModified.String
+		}
+		if cacheUntil.Valid {
+			f.CacheUntil = cacheUntil.Time
 		}
 		feeds = append(feeds, f)
 	}
@@ -304,4 +334,52 @@ func (store *Store) DeleteFeed(feedId string) error {
 		return fmt.Errorf("error deleting feed: %w", err)
 	}
 	return nil
+}
+
+func (store *Store) UpdateFeedCacheInfo(feedId int64, etag, lastModified string, cacheUntil time.Time) error {
+	_, err := store.db.Exec(`
+		UPDATE feeds
+		SET etag = ?, last_modified = ?, cache_until = ?
+		WHERE id = ?
+	`, etag, lastModified, cacheUntil, feedId)
+	if err != nil {
+		return fmt.Errorf("error updating feed cache info: %w", err)
+	}
+	return nil
+}
+
+func (store *Store) GetFeedByURL(url string) (*Feed, error) {
+	var f Feed
+	var lastFetched sql.NullTime
+	var etag sql.NullString
+	var lastModified sql.NullString
+	var cacheUntil sql.NullTime
+
+	err := store.db.QueryRow(`
+		SELECT id, url, title, last_fetched_at, etag, last_modified, cache_until
+		FROM feeds
+		WHERE url = ?
+	`, url).Scan(&f.ID, &f.URL, &f.Title, &lastFetched, &etag, &lastModified, &cacheUntil)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("error querying feed by URL: %w", err)
+	}
+
+	if lastFetched.Valid {
+		f.LastFetchedAt = lastFetched.Time
+	}
+	if etag.Valid {
+		f.ETag = etag.String
+	}
+	if lastModified.Valid {
+		f.LastModified = lastModified.String
+	}
+	if cacheUntil.Valid {
+		f.CacheUntil = cacheUntil.Time
+	}
+
+	return &f, nil
 }

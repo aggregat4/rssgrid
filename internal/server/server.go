@@ -7,9 +7,9 @@ import (
 	"net/http"
 
 	baseliboidc "github.com/aggregat4/go-baselib-services/v3/oidc"
-	"github.com/boris/go-rssgrid/internal/db"
-	"github.com/boris/go-rssgrid/internal/feed"
-	"github.com/boris/go-rssgrid/internal/templates"
+	"github.com/aggregat4/rssgrid/internal/db"
+	"github.com/aggregat4/rssgrid/internal/feed"
+	"github.com/aggregat4/rssgrid/internal/templates"
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -19,7 +19,7 @@ import (
 type Server struct {
 	store      *db.Store
 	sessions   *sessions.CookieStore
-	fetcher    *feed.Fetcher
+	fetcher    *feed.CacheFetcher
 	templates  *template.Template
 	oidcConfig *baseliboidc.OidcConfiguration
 }
@@ -49,7 +49,7 @@ func NewServer(store *db.Store, oidcConfig *baseliboidc.OidcConfiguration, sessi
 	return &Server{
 		store:      store,
 		sessions:   sessionStore,
-		fetcher:    feed.NewFetcher(),
+		fetcher:    feed.NewCacheFetcher(store),
 		templates:  templates,
 		oidcConfig: oidcConfig,
 	}, nil
@@ -175,9 +175,15 @@ func (s *Server) handleAddFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	content, err := s.fetcher.FetchFeed(r.Context(), url)
+	result, err := s.fetcher.FetchFeedWithCache(r.Context(), url)
 	if err != nil {
 		http.Error(w, "Invalid feed URL", http.StatusBadRequest)
+		return
+	}
+
+	// Check if we got content back
+	if result.Content == nil {
+		http.Error(w, "Feed returned no content", http.StatusBadRequest)
 		return
 	}
 
@@ -187,9 +193,24 @@ func (s *Server) handleAddFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for _, item := range content.Items {
+	// Update feed title
+	if result.Content.Title != "" {
+		if err := s.store.UpdateFeedTitle(feedId, result.Content.Title); err != nil {
+			log.Printf("Error updating feed title: %v", err)
+		}
+	}
+
+	// Add posts
+	for _, item := range result.Content.Items {
 		if err := s.store.AddPost(feedId, item.GUID, item.Title, item.Link, item.PublishedAt, item.Content); err != nil {
 			log.Printf("Error adding post: %v", err)
+		}
+	}
+
+	// Update cache information if we should cache
+	if result.ShouldCache && result.CacheInfo != nil {
+		if err := s.fetcher.UpdateFeedCache(feedId, result.CacheInfo); err != nil {
+			log.Printf("Error updating feed cache info: %v", err)
 		}
 	}
 

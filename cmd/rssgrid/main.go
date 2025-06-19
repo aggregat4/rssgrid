@@ -8,10 +8,10 @@ import (
 	"syscall"
 
 	baseliboidc "github.com/aggregat4/go-baselib-services/v3/oidc"
-	"github.com/boris/go-rssgrid/internal/config"
-	"github.com/boris/go-rssgrid/internal/db"
-	"github.com/boris/go-rssgrid/internal/feed"
-	"github.com/boris/go-rssgrid/internal/server"
+	"github.com/aggregat4/rssgrid/internal/config"
+	"github.com/aggregat4/rssgrid/internal/db"
+	"github.com/aggregat4/rssgrid/internal/feed"
+	"github.com/aggregat4/rssgrid/internal/server"
 )
 
 func main() {
