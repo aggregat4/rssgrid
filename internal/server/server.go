@@ -52,20 +52,23 @@ func NewServer(store *db.Store, oidcConfig *baseliboidc.OidcConfiguration, sessi
 func (s *Server) Start(addr string) error {
 	oidcAuthenticationMiddleware := s.oidcConfig.CreateOidcAuthenticationMiddleware(
 		func(r *http.Request) bool {
-			return false //TODO: isAuthenticated function
+			session, _ := s.sessions.Get(r, "user_session")
+			return session.Values["user_id"] != nil
 		},
 		func(r *http.Request) bool {
-			return true //TODO: skipper function
+			return r.URL.Path == "/auth/callback"
 		},
 	)
 
 	oidcCallbackHandler := s.oidcConfig.CreateOidcCallbackHandler(
 		baseliboidc.CreateSTDSessionBasedOidcDelegate(
 			func(w http.ResponseWriter, r *http.Request, idToken *oidc.IDToken) error {
-				// TODO: id token handling
+				session, _ := s.sessions.Get(r, "user_session")
+				session.Values["user_id"] = idToken.Subject
+				session.Save(r, w)
 				return nil
 			},
-			"/fallbackurl", // TODO: fallback URI
+			"/",
 		),
 	)
 
