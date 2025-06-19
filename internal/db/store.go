@@ -94,7 +94,6 @@ func (store *Store) InitAndVerifyDb(dbPath string) error {
 	return migrations.MigrateSchema(store.db, mymigrations)
 }
 
-// User related methods
 func (store *Store) GetOrCreateUser(oidcSubject, oidcIssuer string) (int64, error) {
 	var userId int64
 	err := store.db.QueryRow(
@@ -121,7 +120,6 @@ func (store *Store) GetOrCreateUser(oidcSubject, oidcIssuer string) (int64, erro
 	return userId, nil
 }
 
-// Feed related methods
 func (store *Store) AddFeed(url string) (int64, error) {
 	result, err := store.db.Exec(
 		"INSERT INTO feeds (url) VALUES (?)",
@@ -162,7 +160,6 @@ func (store *Store) GetUserFeeds(userId int64) ([]Feed, error) {
 	return feeds, nil
 }
 
-// Feed represents a feed in the database
 type Feed struct {
 	ID            int64
 	URL           string
@@ -171,9 +168,8 @@ type Feed struct {
 	GridPosition  int
 }
 
-// Post related methods
+// AddPost adds a post to the database but makes sure that the contents of the post are sanitized using the UGC policy of bluemonday
 func (store *Store) AddPost(feedId int64, guid, title, link string, publishedAt time.Time, content string) error {
-	// Sanitize content before storing
 	sanitizedContent := bluemonday.UGCPolicy().Sanitize(content)
 	_, err := store.db.Exec(`
 		INSERT OR IGNORE INTO posts (feed_id, guid, title, link, published_at, content)
@@ -185,6 +181,7 @@ func (store *Store) AddPost(feedId int64, guid, title, link string, publishedAt 
 	return nil
 }
 
+// GetFeedPosts gets the posts for a given feed and user, and returns them in descending order of published_at
 func (store *Store) GetFeedPosts(feedId int64, userId int64, limit int) ([]Post, error) {
 	rows, err := store.db.Query(`
 		SELECT p.id, p.title, p.link, p.published_at, p.content,
@@ -221,6 +218,7 @@ type Post struct {
 	Seen        bool
 }
 
+// MarkPostAsSeen marks a post as seen for a given user
 func (store *Store) MarkPostAsSeen(userId int64, postId string) error {
 	_, err := store.db.Exec(`
 		INSERT INTO user_post_states (user_id, post_id, seen)

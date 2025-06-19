@@ -6,14 +6,12 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/microcosm-cc/bluemonday"
 	"github.com/mmcdole/gofeed"
 )
 
 type Fetcher struct {
-	client    *http.Client
-	parser    *gofeed.Parser
-	sanitizer *bluemonday.Policy
+	client *http.Client
+	parser *gofeed.Parser
 }
 
 func NewFetcher() *Fetcher {
@@ -21,8 +19,7 @@ func NewFetcher() *Fetcher {
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		parser:    gofeed.NewParser(),
-		sanitizer: bluemonday.UGCPolicy(),
+		parser: gofeed.NewParser(),
 	}
 }
 
@@ -97,15 +94,12 @@ func (f *Fetcher) FetchFeed(ctx context.Context, url string) (*FeedContent, erro
 			postContent = item.Description
 		}
 
-		// Sanitize content
-		sanitizedContent := f.sanitizer.Sanitize(postContent)
-
 		content.Items = append(content.Items, FeedItem{
 			GUID:        guid,
 			Title:       item.Title,
 			Link:        item.Link,
 			PublishedAt: publishedAt,
-			Content:     sanitizedContent,
+			Content:     postContent,
 		})
 	}
 

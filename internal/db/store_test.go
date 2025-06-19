@@ -6,7 +6,6 @@ import (
 )
 
 func TestNewStore(t *testing.T) {
-	// Create a temporary database file
 	tmpFile, err := os.CreateTemp("", "test-*.db")
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
@@ -14,15 +13,12 @@ func TestNewStore(t *testing.T) {
 	defer os.Remove(tmpFile.Name())
 	tmpFile.Close()
 
-	// Test database initialization
 	store, err := NewStore(tmpFile.Name())
 	if err != nil {
 		t.Fatalf("Failed to create store: %v", err)
 	}
 	defer store.db.Close()
 
-	// Verify that the database was created and migrations were applied
-	// by checking if the users table exists
 	var tableName string
 	err = store.db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").Scan(&tableName)
 	if err != nil {
