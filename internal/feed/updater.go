@@ -56,7 +56,7 @@ func (u *Updater) updateFeeds(ctx context.Context) error {
 
 	for _, feed := range feeds {
 		// Fetch and parse feed with cache awareness
-		content, _, err := u.fetcher.FetchFeedForUpdate(ctx, feed.URL)
+		content, err := u.fetcher.FetchFeed(ctx, feed.URL)
 		if err != nil {
 			log.Printf("Error fetching feed %s: %v", feed.URL, err)
 			continue

@@ -62,15 +62,6 @@ func (f *Fetcher) FetchFeed(ctx context.Context, url string) (*FeedContent, erro
 	if err != nil {
 		return nil, err
 	}
-	return result.content, nil
-}
-
-// FetchFeedForUpdate is used internally by the updater to get both content and cache info
-func (f *Fetcher) FetchFeedForUpdate(ctx context.Context, url string) (*FeedContent, bool, error) {
-	result, err := f.fetchFeedWithCache(ctx, url)
-	if err != nil {
-		return nil, false, err
-	}
 
 	// Update cache if we should cache and have cache info
 	if result.shouldCache && result.cacheInfo != nil {
@@ -84,7 +75,7 @@ func (f *Fetcher) FetchFeedForUpdate(ctx context.Context, url string) (*FeedCont
 		}
 	}
 
-	return result.content, result.shouldCache, nil
+	return result.content, nil
 }
 
 // fetchFeedWithCache is the internal method that handles caching logic
