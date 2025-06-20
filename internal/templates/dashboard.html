@@ -31,9 +31,9 @@
                 <ul class="post-list">
                     {{range .Posts}}
                     <li class="post-item">
-                        <button class="post-link {{if .Seen}}seen{{end}}" data-post-id="{{.ID}}" data-post-title="{{.Title}}">
+                        <a href="#" role="button" class="post-link {{if .Seen}}seen{{end}}" data-post-id="{{.ID}}" data-post-title="{{.Title}}">
                             {{.Title}}
-                        </button>
+                        </a>
                     </li>
                     {{end}}
                 </ul>
@@ -62,9 +62,13 @@
     </dialog>
 
     <script>
+        let lastOpenedPostButton = null;
+
         // Mark post as seen when clicked
         document.addEventListener('click', function(e) {
             if (e.target.matches('.post-link')) {
+                e.preventDefault(); // Prevent navigation since href="#"
+                
                 const postId = e.target.dataset.postId;
                 const postTitle = e.target.dataset.postTitle;
                 if (postId) {
@@ -73,9 +77,28 @@
                         method: 'POST',
                     }).catch(console.error);
                     
+                    // Remember the button for later styling
+                    lastOpenedPostButton = e.target;
+                    
                     // Open post dialog
                     openPostDialog(postId, postTitle);
                 }
+            }
+        });
+
+        // Listen for dialog close event (triggered by Escape, clicking outside, or close button)
+        document.getElementById('postDialog').addEventListener('close', function() {
+            // Mark the last opened post as seen in the UI
+            if (lastOpenedPostButton) {
+                lastOpenedPostButton.classList.add('seen');
+                lastOpenedPostButton = null;
+            }
+        });
+
+        // Handle clicking outside the dialog to dismiss it
+        document.getElementById('postDialog').addEventListener('click', function(e) {
+            if (e.target === this) {
+                this.close();
             }
         });
 
@@ -135,20 +158,6 @@
             const dialog = document.getElementById('postDialog');
             dialog.close();
         }
-
-        // Close dialog when clicking outside of it
-        document.getElementById('postDialog').addEventListener('click', function(e) {
-            if (e.target === this) {
-                closePostDialog();
-            }
-        });
-
-        // Close dialog with Escape key
-        document.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape') {
-                closePostDialog();
-            }
-        });
     </script>
 </body>
 </html> 
