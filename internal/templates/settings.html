@@ -28,6 +28,16 @@
             </div>
             {{end}}
             
+            <h2>Display Settings</h2>
+            <form action="/settings/preferences" method="POST">
+                <div class="form-group">
+                    <label for="postsPerFeed">Posts per feed</label>
+                    <input type="number" id="postsPerFeed" name="postsPerFeed" min="1" max="50" value="{{.PostsPerFeed}}" required>
+                    <small>Number of posts to display for each feed (1-50)</small>
+                </div>
+                <button type="submit" class="btn">Save Preferences</button>
+            </form>
+
             <h2>Add New Feed</h2>
             <form action="/settings/feeds" method="POST">
                 <div class="form-group">

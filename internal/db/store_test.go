@@ -176,3 +176,100 @@ func TestAddFeedForUser_DuplicateHandling(t *testing.T) {
 		t.Errorf("Expected feed URL %s for user2, got %s", feedURL, user2Feeds[0].URL)
 	}
 }
+
+func TestUserPreferences(t *testing.T) {
+	// Create a temporary database
+	tmpFile, err := os.CreateTemp("", "test-*.db")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	tmpFile.Close()
+
+	store, err := NewStore(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
+	defer store.db.Close()
+
+	// Create a test user
+	userID, err := store.GetOrCreateUser("test-subject", "test-issuer")
+	if err != nil {
+		t.Fatalf("Failed to create test user: %v", err)
+	}
+
+	// Test 1: Get default posts per feed for new user
+	postsPerFeed, err := store.GetUserPostsPerFeed(userID)
+	if err != nil {
+		t.Fatalf("Failed to get default posts per feed: %v", err)
+	}
+	if postsPerFeed != 10 {
+		t.Errorf("Expected default posts per feed to be 10, got %d", postsPerFeed)
+	}
+
+	// Test 2: Set custom posts per feed
+	customPostsPerFeed := 15
+	err = store.SetUserPostsPerFeed(userID, customPostsPerFeed)
+	if err != nil {
+		t.Fatalf("Failed to set posts per feed: %v", err)
+	}
+
+	// Test 3: Verify the setting was saved
+	postsPerFeed, err = store.GetUserPostsPerFeed(userID)
+	if err != nil {
+		t.Fatalf("Failed to get posts per feed after setting: %v", err)
+	}
+	if postsPerFeed != customPostsPerFeed {
+		t.Errorf("Expected posts per feed to be %d, got %d", customPostsPerFeed, postsPerFeed)
+	}
+
+	// Test 4: Update the setting
+	newPostsPerFeed := 25
+	err = store.SetUserPostsPerFeed(userID, newPostsPerFeed)
+	if err != nil {
+		t.Fatalf("Failed to update posts per feed: %v", err)
+	}
+
+	// Test 5: Verify the update
+	postsPerFeed, err = store.GetUserPostsPerFeed(userID)
+	if err != nil {
+		t.Fatalf("Failed to get posts per feed after update: %v", err)
+	}
+	if postsPerFeed != newPostsPerFeed {
+		t.Errorf("Expected posts per feed to be %d, got %d", newPostsPerFeed, postsPerFeed)
+	}
+
+	// Test 6: Test with another user (should have separate preferences)
+	user2ID, err := store.GetOrCreateUser("test-subject-2", "test-issuer")
+	if err != nil {
+		t.Fatalf("Failed to create second test user: %v", err)
+	}
+
+	postsPerFeed2, err := store.GetUserPostsPerFeed(user2ID)
+	if err != nil {
+		t.Fatalf("Failed to get posts per feed for second user: %v", err)
+	}
+	if postsPerFeed2 != 10 {
+		t.Errorf("Expected default posts per feed for second user to be 10, got %d", postsPerFeed2)
+	}
+
+	// Test 7: Set different preference for second user
+	err = store.SetUserPostsPerFeed(user2ID, 5)
+	if err != nil {
+		t.Fatalf("Failed to set posts per feed for second user: %v", err)
+	}
+
+	// Test 8: Verify both users have different preferences
+	postsPerFeed1, err := store.GetUserPostsPerFeed(userID)
+	if err != nil {
+		t.Fatalf("Failed to get posts per feed for first user: %v", err)
+	}
+	postsPerFeed2, err = store.GetUserPostsPerFeed(user2ID)
+	if err != nil {
+		t.Fatalf("Failed to get posts per feed for second user: %v", err)
+	}
+
+	if postsPerFeed1 == postsPerFeed2 {
+		t.Errorf("Expected different preferences for different users, got %d and %d", postsPerFeed1, postsPerFeed2)
+	}
+}

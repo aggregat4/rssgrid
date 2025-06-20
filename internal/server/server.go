@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"runtime/debug"
+	"strconv"
 	"time"
 
 	baseliboidc "github.com/aggregat4/go-baselib-services/v3/oidc"
@@ -38,6 +39,8 @@ type StoreInterface interface {
 	DeleteFeed(feedID string) error
 	MarkPostAsSeen(userID int64, postID string) error
 	MarkAllFeedPostsAsSeen(userID int64, feedID string) error
+	GetUserPostsPerFeed(userID int64) (int, error)
+	SetUserPostsPerFeed(userID int64, postsPerFeed int) error
 }
 
 // getUserID extracts the user ID from the session
@@ -170,6 +173,7 @@ func (s *Server) Start(addr string) error {
 		r.Get("/settings", s.handleSettings)
 		r.Post("/settings/feeds", s.handleAddFeed)
 		r.Post("/settings/feeds/{feedId}/delete", s.handleDeleteFeed)
+		r.Post("/settings/preferences", s.handleUpdatePreferences)
 		r.Post("/posts/{postId}/seen", s.handleMarkPostSeen)
 		r.Post("/feeds/{feedId}/seen", s.handleMarkAllSeen)
 	})
@@ -187,6 +191,13 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get user's posts per feed preference
+	postsPerFeed, err := s.store.GetUserPostsPerFeed(userId)
+	if err != nil {
+		s.logErrorAndRespond(w, http.StatusInternalServerError, "Error fetching user preferences", "Error fetching posts per feed preference", err, "userId", userId)
+		return
+	}
+
 	type FeedData struct {
 		Feed  db.Feed
 		Posts []db.Post
@@ -194,7 +205,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 	var feedData []FeedData
 	for _, f := range feeds {
-		posts, err := s.store.GetFeedPosts(f.ID, userId, 10)
+		posts, err := s.store.GetFeedPosts(f.ID, userId, postsPerFeed)
 		if err != nil {
 			s.logErrorAndRespond(w, http.StatusInternalServerError, "Error fetching posts", "Error fetching posts for feed", err, "feedId", f.ID, "userId", userId)
 			return
@@ -224,6 +235,13 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get user's posts per feed preference
+	postsPerFeed, err := s.store.GetUserPostsPerFeed(userId)
+	if err != nil {
+		s.logErrorAndRespond(w, http.StatusInternalServerError, "Error fetching user preferences", "Error fetching posts per feed preference", err, "userId", userId)
+		return
+	}
+
 	// Get flash messages
 	session, err := s.sessions.Get(r, "user_session")
 	var flashMessages []map[string]string
@@ -242,9 +260,11 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	data := struct {
 		Feeds         []db.Feed
 		FlashMessages []map[string]string
+		PostsPerFeed  int
 	}{
 		Feeds:         feeds,
 		FlashMessages: flashMessages,
+		PostsPerFeed:  postsPerFeed,
 	}
 
 	log.Printf("Rendering settings template with %d feeds", len(feeds))
@@ -357,4 +377,37 @@ func (s *Server) handleMarkAllSeen(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func (s *Server) handleUpdatePreferences(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userId := s.getUserID(r)
+	if userId == 0 {
+		http.Error(w, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	postsPerFeed, err := strconv.Atoi(r.FormValue("postsPerFeed"))
+	if err != nil {
+		s.logErrorAndRespond(w, http.StatusBadRequest, "Invalid posts per feed format", "Error parsing posts per feed", err)
+		return
+	}
+
+	if err := s.store.SetUserPostsPerFeed(userId, postsPerFeed); err != nil {
+		s.logErrorAndRespond(w, http.StatusInternalServerError, "Error updating posts per feed", "Error updating posts per feed for user", err, "userId", userId, "postsPerFeed", postsPerFeed)
+		return
+	}
+
+	// Set a success message in the session
+	session, err := s.sessions.Get(r, "user_session")
+	if err == nil {
+		session.AddFlash("Posts per feed updated successfully!", "success")
+		session.Save(r, w)
+	}
+
+	http.Redirect(w, r, "/settings", http.StatusSeeOther)
 }

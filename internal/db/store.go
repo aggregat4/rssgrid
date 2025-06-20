@@ -74,6 +74,18 @@ CREATE TABLE user_post_states (
 );
 `,
 	},
+	{
+		SequenceId: 2,
+		Sql: `
+-- Stores user preferences
+CREATE TABLE user_preferences (
+    user_id INTEGER NOT NULL,
+    posts_per_feed INTEGER NOT NULL DEFAULT 10,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY(user_id)
+);
+`,
+	},
 }
 
 type Store struct {
@@ -422,4 +434,37 @@ func (store *Store) GetFeedByURL(url string) (*Feed, error) {
 	}
 
 	return &f, nil
+}
+
+// GetUserPostsPerFeed gets the number of posts per feed for a user
+func (store *Store) GetUserPostsPerFeed(userId int64) (int, error) {
+	var postsPerFeed int
+	err := store.db.QueryRow(`
+		SELECT posts_per_feed 
+		FROM user_preferences 
+		WHERE user_id = ?
+	`, userId).Scan(&postsPerFeed)
+
+	if err == sql.ErrNoRows {
+		// Return default value if no preference is set
+		return 10, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("error querying user posts per feed preference: %w", err)
+	}
+
+	return postsPerFeed, nil
+}
+
+// SetUserPostsPerFeed sets the number of posts per feed for a user
+func (store *Store) SetUserPostsPerFeed(userId int64, postsPerFeed int) error {
+	_, err := store.db.Exec(`
+		INSERT INTO user_preferences (user_id, posts_per_feed) 
+		VALUES (?, ?) 
+		ON CONFLICT(user_id) DO UPDATE SET posts_per_feed = ?
+	`, userId, postsPerFeed, postsPerFeed)
+	if err != nil {
+		return fmt.Errorf("error setting user posts per feed preference: %w", err)
+	}
+	return nil
 }
