@@ -21,11 +21,11 @@
     <main class="container">
         <div class="grid">
             {{range .Feeds}}
-            <div class="widget">
+            <div class="widget" data-feed-id="{{.Feed.ID}}">
                 <div class="widget-header">
                     <h2 class="widget-title">{{.Feed.Title}}</h2>
                     <form action="/feeds/{{.Feed.ID}}/seen" method="POST">
-                        <button type="submit" class="btn btn-secondary">Mark All as Read</button>
+                        <button type="submit" class="btn btn-icon" title="Mark all posts for {{.Feed.Title}} as read">✓</button>
                     </form>
                 </div>
                 <ul class="post-list">
