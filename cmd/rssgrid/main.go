@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log"
 	"os"
 	"os/signal"
@@ -15,7 +16,19 @@ import (
 )
 
 func main() {
-	cfg, err := config.Load()
+	var configPath string
+	flag.StringVar(&configPath, "config", "", "Path to configuration file (default: ~/.config/rssgrid/rssgrid.json)")
+	flag.Parse()
+
+	var cfg *config.Config
+	var err error
+
+	if configPath != "" {
+		cfg, err = config.LoadWithPath(configPath)
+	} else {
+		cfg, err = config.Load()
+	}
+
 	if err != nil {
 		log.Fatalf("Error loading configuration: %v", err)
 	}
@@ -56,7 +69,6 @@ func main() {
 		os.Exit(0)
 	}()
 
-	log.Printf("Starting server on %s", cfg.Addr)
 	if err := srv.Start(cfg.Addr); err != nil {
 		log.Fatalf("Error starting server: %v", err)
 	}

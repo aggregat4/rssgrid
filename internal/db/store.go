@@ -134,6 +134,42 @@ func (store *Store) AddFeed(url string) (int64, error) {
 	return result.LastInsertId()
 }
 
+// AddFeedForUser adds a feed for a specific user, handling duplicates gracefully
+func (store *Store) AddFeedForUser(userId int64, url string) (int64, error) {
+	// Start a transaction
+	tx, err := store.db.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("error starting transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Try to insert the feed, or get existing feed ID if it already exists
+	var feedId int64
+	err = tx.QueryRow(
+		"INSERT INTO feeds (url) VALUES (?) ON CONFLICT(url) DO UPDATE SET url = url RETURNING id",
+		url,
+	).Scan(&feedId)
+	if err != nil {
+		return 0, fmt.Errorf("error adding or getting feed: %w", err)
+	}
+
+	// Associate the feed with the user (ignore if already associated)
+	_, err = tx.Exec(
+		"INSERT OR IGNORE INTO user_feeds (user_id, feed_id) VALUES (?, ?)",
+		userId, feedId,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("error associating feed with user: %w", err)
+	}
+
+	// Commit the transaction
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("error committing transaction: %w", err)
+	}
+
+	return feedId, nil
+}
+
 func (store *Store) GetUserFeeds(userId int64) ([]Feed, error) {
 	rows, err := store.db.Query(`
 		SELECT f.id, f.url, f.title, f.last_fetched_at, f.etag, f.last_modified, f.cache_until, uf.grid_position
@@ -150,13 +186,17 @@ func (store *Store) GetUserFeeds(userId int64) ([]Feed, error) {
 	var feeds []Feed
 	for rows.Next() {
 		var f Feed
+		var title sql.NullString
 		var lastFetched sql.NullTime
 		var etag sql.NullString
 		var lastModified sql.NullString
 		var cacheUntil sql.NullTime
-		err := rows.Scan(&f.ID, &f.URL, &f.Title, &lastFetched, &etag, &lastModified, &cacheUntil, &f.GridPosition)
+		err := rows.Scan(&f.ID, &f.URL, &title, &lastFetched, &etag, &lastModified, &cacheUntil, &f.GridPosition)
 		if err != nil {
 			return nil, fmt.Errorf("error scanning feed: %w", err)
+		}
+		if title.Valid {
+			f.Title = title.String
 		}
 		if lastFetched.Valid {
 			f.LastFetchedAt = lastFetched.Time

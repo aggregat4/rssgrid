@@ -1,8 +1,6 @@
 package config
 
 import (
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/kirsle/configdir"
@@ -24,13 +22,14 @@ type Config struct {
 
 func Load() (*Config, error) {
 	configDir := configdir.LocalConfig("rssgrid")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		return nil, err
-	}
-	configPath := filepath.Join(configDir, "rssgrid.json")
+	return LoadWithPath(configDir)
+}
+
+func LoadWithPath(configPath string) (*Config, error) {
 	var cfg Config
 	if err := fig.Load(&cfg,
-		fig.File(configPath),
+		fig.File("rssgrid.json"),
+		fig.Dirs(configPath),
 		fig.UseEnv("RSSGRID"),
 	); err != nil {
 		return nil, err

@@ -1,66 +1,61 @@
-{{define "content"}}
-<div class="settings">
-    <h2>Add New Feed</h2>
-    <form action="/settings/feeds" method="POST">
-        <div class="form-group">
-            <label for="url">Feed URL</label>
-            <input type="url" id="url" name="url" required placeholder="https://example.com/feed.xml">
-        </div>
-        <button type="submit" class="btn">Add Feed</button>
-    </form>
-
-    <h2>Your Feeds</h2>
-    {{if .Feeds}}
-    <ul class="feed-list">
-        {{range .Feeds}}
-        <li class="feed-item">
-            <div class="feed-info">
-                <h3>{{.Title}}</h3>
-                <p>{{.URL}}</p>
-            </div>
-            <form action="/settings/feeds/{{.ID}}/delete" method="POST">
-                <button type="submit" class="btn btn-danger">Remove</button>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RSSGrid - Settings</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <header class="header">
+        <h1>RSSGrid</h1>
+        <nav class="nav">
+            <a href="/">Dashboard</a>
+            <a href="/settings">Settings</a>
+            <form action="/logout" method="POST" style="display: inline;">
+                <button type="submit" class="btn btn-secondary">Logout</button>
             </form>
-        </li>
-        {{end}}
-    </ul>
-    {{else}}
-    <p>No feeds added yet. Add your first feed above!</p>
-    {{end}}
-</div>
+        </nav>
+    </header>
 
-<style>
-    .settings {
-        max-width: 800px;
-        margin: 0 auto;
-    }
+    <main class="container">
+        <div class="settings">
+            {{if .FlashMessages}}
+            <div class="flash-messages">
+                {{range .FlashMessages}}
+                <div class="flash-message flash-{{.Type}}">{{.Message}}</div>
+                {{end}}
+            </div>
+            {{end}}
+            
+            <h2>Add New Feed</h2>
+            <form action="/settings/feeds" method="POST">
+                <div class="form-group">
+                    <label for="url">Feed URL</label>
+                    <input type="url" id="url" name="url" required placeholder="https://example.com/feed.xml">
+                </div>
+                <button type="submit" class="btn">Add Feed</button>
+            </form>
 
-    .feed-list {
-        list-style: none;
-        padding: 0;
-        margin: 2rem 0;
-    }
-
-    .feed-item {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 1rem;
-        background-color: white;
-        border: 1px solid var(--border-color);
-        border-radius: 0.5rem;
-        margin-bottom: 1rem;
-    }
-
-    .feed-info h3 {
-        margin: 0;
-        font-size: 1.1rem;
-    }
-
-    .feed-info p {
-        margin: 0.5rem 0 0;
-        color: #6b7280;
-        font-size: 0.9rem;
-    }
-</style>
-{{end}} 
+            <h2>Your Feeds</h2>
+            {{if .Feeds}}
+            <ul class="feed-list">
+                {{range .Feeds}}
+                <li class="feed-item">
+                    <div class="feed-info">
+                        <h3>{{.Title}}</h3>
+                        <p>{{.URL}}</p>
+                    </div>
+                    <form action="/settings/feeds/{{.ID}}/delete" method="POST">
+                        <button type="submit" class="btn btn-danger">Remove</button>
+                    </form>
+                </li>
+                {{end}}
+            </ul>
+            {{else}}
+            <p>No feeds added yet. Add your first feed above!</p>
+            {{end}}
+        </div>
+    </main>
+</body>
+</html> 

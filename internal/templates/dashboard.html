@@ -1,23 +1,59 @@
-{{define "content"}}
-<div class="grid">
-    {{range .Feeds}}
-    <div class="widget">
-        <div class="widget-header">
-            <h2 class="widget-title">{{.Feed.Title}}</h2>
-            <form action="/feeds/{{.Feed.ID}}/seen" method="POST">
-                <button type="submit" class="btn btn-secondary">Mark All as Read</button>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RSSGrid</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <header class="header">
+        <h1>RSSGrid</h1>
+        <nav class="nav">
+            <a href="/">Dashboard</a>
+            <a href="/settings">Settings</a>
+            <form action="/logout" method="POST" style="display: inline;">
+                <button type="submit" class="btn btn-secondary">Logout</button>
             </form>
-        </div>
-        <ul class="post-list">
-            {{range .Posts}}
-            <li class="post-item">
-                <a href="{{.Link}}" class="post-link {{if .Seen}}seen{{end}}" target="_blank" data-post-id="{{.ID}}">
-                    {{.Title}}
-                </a>
-            </li>
+        </nav>
+    </header>
+
+    <main class="container">
+        <div class="grid">
+            {{range .Feeds}}
+            <div class="widget">
+                <div class="widget-header">
+                    <h2 class="widget-title">{{.Feed.Title}}</h2>
+                    <form action="/feeds/{{.Feed.ID}}/seen" method="POST">
+                        <button type="submit" class="btn btn-secondary">Mark All as Read</button>
+                    </form>
+                </div>
+                <ul class="post-list">
+                    {{range .Posts}}
+                    <li class="post-item">
+                        <a href="{{.Link}}" class="post-link {{if .Seen}}seen{{end}}" target="_blank" data-post-id="{{.ID}}">
+                            {{.Title}}
+                        </a>
+                    </li>
+                    {{end}}
+                </ul>
+            </div>
             {{end}}
-        </ul>
-    </div>
-    {{end}}
-</div>
-{{end}} 
+        </div>
+    </main>
+
+    <script>
+        // Mark post as seen when clicked
+        document.addEventListener('click', function(e) {
+            if (e.target.matches('.post-link')) {
+                const postId = e.target.dataset.postId;
+                if (postId) {
+                    fetch(`/posts/${postId}/seen`, {
+                        method: 'POST',
+                    }).catch(console.error);
+                }
+            }
+        });
+    </script>
+</body>
+</html> 
