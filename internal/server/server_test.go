@@ -325,15 +325,16 @@ func TestUpdatePreferences(t *testing.T) {
 
 	server := testServer(t, mockStoreWithFeeds(feeds, nil))
 
-	// Create a POST request with form data
+	// Create a POST request with valid form data
 	req := httptest.NewRequest("POST", "/settings/preferences", strings.NewReader("postsPerFeed=15"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	w := httptest.NewRecorder()
 
 	// Create a session with a user ID
 	session, _ := server.sessions.Get(req, "user_session")
 	session.Values["user_id"] = int64(1)
-
-	w := httptest.NewRecorder()
+	session.Save(req, w)
 
 	// Call the handler directly
 	server.handleUpdatePreferences(w, req)
@@ -361,11 +362,12 @@ func TestUpdatePreferencesInvalidInput(t *testing.T) {
 	req := httptest.NewRequest("POST", "/settings/preferences", strings.NewReader("postsPerFeed=invalid"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
+	w := httptest.NewRecorder()
+
 	// Create a session with a user ID
 	session, _ := server.sessions.Get(req, "user_session")
 	session.Values["user_id"] = int64(1)
-
-	w := httptest.NewRecorder()
+	session.Save(req, w)
 
 	// Call the handler directly
 	server.handleUpdatePreferences(w, req)
