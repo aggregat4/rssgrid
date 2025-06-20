@@ -44,6 +44,64 @@ type StoreInterface interface {
 	SetUserPostsPerFeed(userID int64, postsPerFeed int) error
 }
 
+type FlashMessage struct {
+	Message string
+	Type    string
+}
+
+// addFlashMessage adds a flash message to the session
+func (s *Server) addFlashMessage(w http.ResponseWriter, r *http.Request, message, flashType string) {
+	session, err := s.sessions.Get(r, "user_session")
+	if err != nil {
+		log.Printf("Error getting session for flash message: %v", err)
+		return
+	}
+
+	session.AddFlash(message, flashType)
+	if err := session.Save(r, w); err != nil {
+		log.Printf("Error saving session with flash message: %v\nStack trace:\n%s", err, debug.Stack())
+	}
+}
+
+// addErrorFlash adds an error flash message to the session
+func (s *Server) addErrorFlash(w http.ResponseWriter, r *http.Request, message string) {
+	s.addFlashMessage(w, r, message, "error")
+}
+
+// addSuccessFlash adds a success flash message to the session
+func (s *Server) addSuccessFlash(w http.ResponseWriter, r *http.Request, message string) {
+	s.addFlashMessage(w, r, message, "success")
+}
+
+// getFlashMessages retrieves all flash messages from the session
+func (s *Server) getFlashMessages(w http.ResponseWriter, r *http.Request) []FlashMessage {
+	session, err := s.sessions.Get(r, "user_session")
+	var flashMessages []FlashMessage
+	if err != nil {
+		log.Printf("Error getting session for flash messages: %v", err)
+		return flashMessages
+	}
+
+	// Get error flash messages
+	flashes := session.Flashes("error")
+	for _, flash := range flashes {
+		flashMessages = append(flashMessages, FlashMessage{Message: flash.(string), Type: "error"})
+	}
+
+	// Get success flash messages
+	flashes = session.Flashes("success")
+	for _, flash := range flashes {
+		flashMessages = append(flashMessages, FlashMessage{Message: flash.(string), Type: "success"})
+	}
+
+	// Save the session after consuming flash messages to remove them from the session
+	if err := session.Save(r, w); err != nil {
+		log.Printf("Error saving session: %v\nStack trace:\n%s", err, debug.Stack())
+	}
+
+	return flashMessages
+}
+
 // getUserID extracts the user ID from the session
 func (s *Server) getUserID(r *http.Request) int64 {
 	session, err := s.sessions.Get(r, "user_session")
@@ -61,6 +119,16 @@ func (s *Server) getUserID(r *http.Request) int64 {
 
 func NewServer(store StoreInterface, oidcConfig *baseliboidc.OidcConfiguration, sessionKey string) (*Server, error) {
 	sessionStore := sessions.NewCookieStore([]byte(sessionKey))
+
+	// Configure session store options to ensure flash messages persist
+	sessionStore.Options = &sessions.Options{
+		Path:     "/",
+		MaxAge:   86400 * 30, // 7 days
+		HttpOnly: true,
+		Secure:   false, // Set to true in production with HTTPS
+		SameSite: http.SameSiteLaxMode,
+	}
+
 	templates, err := templates.LoadTemplates()
 	if err != nil {
 		log.Printf("Error loading templates: %v\nStack trace:\n%s", err, debug.Stack())
@@ -245,23 +313,11 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get flash messages
-	session, err := s.sessions.Get(r, "user_session")
-	var flashMessages []map[string]string
-	if err == nil {
-		flashes := session.Flashes("success", "error")
-		for _, flash := range flashes {
-			if flashMap, ok := flash.(map[string]string); ok {
-				flashMessages = append(flashMessages, flashMap)
-			} else if flashStr, ok := flash.(string); ok {
-				flashMessages = append(flashMessages, map[string]string{"message": flashStr, "type": "success"})
-			}
-		}
-		session.Save(r, w)
-	}
+	flashMessages := s.getFlashMessages(w, r)
 
 	data := struct {
 		Feeds         []db.Feed
-		FlashMessages []map[string]string
+		FlashMessages []FlashMessage
 		PostsPerFeed  int
 	}{
 		Feeds:         feeds,
@@ -277,11 +333,6 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAddFeed(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	userId := s.getUserID(r)
 	if userId == 0 {
 		http.Error(w, "User not authenticated", http.StatusUnauthorized)
@@ -290,44 +341,52 @@ func (s *Server) handleAddFeed(w http.ResponseWriter, r *http.Request) {
 
 	url := r.FormValue("url")
 	if url == "" {
-		http.Error(w, "URL is required", http.StatusBadRequest)
+		// Set error message and redirect
+		s.addErrorFlash(w, r, "URL is required")
+		http.Redirect(w, r, "/settings", http.StatusSeeOther)
 		return
 	}
 
 	content, err := s.fetcher.FetchFeed(r.Context(), url)
 	if err != nil {
-		s.logErrorAndRespond(w, http.StatusBadRequest, "Invalid feed URL", "Error fetching feed from URL", err, "url", url)
+		// Log the error for debugging
+		log.Printf("Error fetching feed from URL: %v\nContext: [url %s]\nStack trace:\n%s", err, url, debug.Stack())
+
+		// Set error message and redirect
+		s.addErrorFlash(w, r, "Invalid feed URL or unable to fetch feed")
+		http.Redirect(w, r, "/settings", http.StatusSeeOther)
 		return
 	}
 
 	feedId, err := s.store.AddFeedForUser(userId, url)
 	if err != nil {
-		s.logErrorAndRespond(w, http.StatusInternalServerError, "Error adding feed", "Error adding feed with URL", err, "url", url)
+		// Log the error for debugging
+		log.Printf("Error adding feed with URL: %v\nContext: [url %s]\nStack trace:\n%s", err, url, debug.Stack())
+
+		// Set error message and redirect
+		s.addErrorFlash(w, r, "Error adding feed. Please try again.")
+		http.Redirect(w, r, "/settings", http.StatusSeeOther)
 		return
 	}
 
 	// Update feed title
 	if content.Title != "" {
 		if err := s.store.UpdateFeedTitle(feedId, content.Title); err != nil {
-			s.logErrorAndRespond(w, http.StatusInternalServerError, "Error updating feed title", "Error updating feed title for feed", err, "feedId", feedId)
-			return
+			log.Printf("Error updating feed title for feed: %v\nContext: [feedId %d]\nStack trace:\n%s", err, feedId, debug.Stack())
+			// Don't fail the entire operation for title update errors
 		}
 	}
 
 	// Add posts
 	for _, item := range content.Items {
 		if err := s.store.AddPost(feedId, item.GUID, item.Title, item.Link, item.PublishedAt, item.Content); err != nil {
-			s.logErrorAndRespond(w, http.StatusInternalServerError, "Error adding post", "Error adding post with GUID to feed", err, "guid", item.GUID, "feedId", feedId)
-			return
+			log.Printf("Error adding post with GUID to feed: %v\nContext: [guid %s, feedId %d]\nStack trace:\n%s", err, item.GUID, feedId, debug.Stack())
+			// Continue adding other posts even if one fails
 		}
 	}
 
 	// Set a success message in the session
-	session, err := s.sessions.Get(r, "user_session")
-	if err == nil {
-		session.AddFlash("Feed added successfully!", "success")
-		session.Save(r, w)
-	}
+	s.addSuccessFlash(w, r, "Feed added successfully!")
 
 	http.Redirect(w, r, "/settings", http.StatusSeeOther)
 }
@@ -405,11 +464,7 @@ func (s *Server) handleUpdatePreferences(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Set a success message in the session
-	session, err := s.sessions.Get(r, "user_session")
-	if err == nil {
-		session.AddFlash("Posts per feed updated successfully!", "success")
-		session.Save(r, w)
-	}
+	s.addSuccessFlash(w, r, "Posts per feed updated successfully!")
 
 	http.Redirect(w, r, "/settings", http.StatusSeeOther)
 }
