@@ -31,6 +31,7 @@ type Server struct {
 type StoreInterface interface {
 	GetUserFeeds(userID int64) ([]db.Feed, error)
 	GetFeedPosts(feedID, userID int64, limit int) ([]db.Post, error)
+	GetPost(postID int64) (*db.Post, error)
 	GetOrCreateUser(subject, issuer string) (int64, error)
 	AddFeed(url string) (int64, error)
 	AddFeedForUser(userID int64, url string) (int64, error)
@@ -67,7 +68,7 @@ func NewServer(store StoreInterface, oidcConfig *baseliboidc.OidcConfiguration, 
 	}
 
 	// Validate that required templates exist
-	requiredTemplates := []string{"dashboard.html", "settings.html"}
+	requiredTemplates := []string{"dashboard.html", "settings.html", "post.html"}
 	for _, tmplName := range requiredTemplates {
 		if tmpl := templates.Lookup(tmplName); tmpl == nil {
 			log.Printf("Warning: Required template '%s' not found", tmplName)
@@ -171,6 +172,7 @@ func (s *Server) Start(addr string) error {
 	r.Group(func(r chi.Router) {
 		r.Get("/", s.handleDashboard)
 		r.Get("/settings", s.handleSettings)
+		r.Get("/posts/{postId}", s.handleGetPost)
 		r.Post("/settings/feeds", s.handleAddFeed)
 		r.Post("/settings/feeds/{feedId}/delete", s.handleDeleteFeed)
 		r.Post("/settings/preferences", s.handleUpdatePreferences)
@@ -410,4 +412,54 @@ func (s *Server) handleUpdatePreferences(w http.ResponseWriter, r *http.Request)
 	}
 
 	http.Redirect(w, r, "/settings", http.StatusSeeOther)
+}
+
+func (s *Server) handleGetPost(w http.ResponseWriter, r *http.Request) {
+	postIdStr := chi.URLParam(r, "postId")
+	if postIdStr == "" {
+		http.Error(w, "Invalid post ID", http.StatusBadRequest)
+		return
+	}
+
+	postId, err := strconv.ParseInt(postIdStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid post ID format", http.StatusBadRequest)
+		return
+	}
+
+	post, err := s.store.GetPost(postId)
+	if err != nil {
+		s.logErrorAndRespond(w, http.StatusInternalServerError, "Error fetching post", "Error fetching post", err, "postId", postId)
+		return
+	}
+
+	data := struct {
+		Post struct {
+			ID          int64
+			Title       string
+			Link        string
+			PublishedAt time.Time
+			Content     template.HTML
+		}
+	}{
+		Post: struct {
+			ID          int64
+			Title       string
+			Link        string
+			PublishedAt time.Time
+			Content     template.HTML
+		}{
+			ID:          post.ID,
+			Title:       post.Title,
+			Link:        post.Link,
+			PublishedAt: post.PublishedAt,
+			Content:     template.HTML(post.Content),
+		},
+	}
+
+	log.Printf("Rendering post template with post ID %d", postId)
+	if err := s.templates.ExecuteTemplate(w, "post.html", data); err != nil {
+		s.logErrorAndRespond(w, http.StatusInternalServerError, "Error rendering template", "Error rendering post template", err, "postId", postId)
+		return
+	}
 }

@@ -31,9 +31,9 @@
                 <ul class="post-list">
                     {{range .Posts}}
                     <li class="post-item">
-                        <a href="{{.Link}}" class="post-link {{if .Seen}}seen{{end}}" target="_blank" data-post-id="{{.ID}}">
+                        <button class="post-link {{if .Seen}}seen{{end}}" data-post-id="{{.ID}}" data-post-title="{{.Title}}">
                             {{.Title}}
-                        </a>
+                        </button>
                     </li>
                     {{end}}
                 </ul>
@@ -42,16 +42,111 @@
         </div>
     </main>
 
+    <!-- Post Detail Dialog -->
+    <dialog id="postDialog" class="post-dialog-modal">
+        <div class="post-dialog-content">
+            <div class="post-dialog-header">
+                <h2 id="dialogTitle" class="post-title"></h2>
+                <div class="post-meta">
+                    <span id="dialogDate" class="post-date"></span>
+                </div>
+                <div class="post-actions">
+                    <a id="dialogOriginalLink" href="#" target="_blank" class="btn btn-primary">View Original</a>
+                    <button class="btn btn-secondary" onclick="closePostDialog()">Close</button>
+                </div>
+            </div>
+            <div id="dialogContent" class="post-content">
+                <p>Loading...</p>
+            </div>
+        </div>
+    </dialog>
+
     <script>
         // Mark post as seen when clicked
         document.addEventListener('click', function(e) {
             if (e.target.matches('.post-link')) {
                 const postId = e.target.dataset.postId;
+                const postTitle = e.target.dataset.postTitle;
                 if (postId) {
+                    // Mark as seen
                     fetch(`/posts/${postId}/seen`, {
                         method: 'POST',
                     }).catch(console.error);
+                    
+                    // Open post dialog
+                    openPostDialog(postId, postTitle);
                 }
+            }
+        });
+
+        function openPostDialog(postId, postTitle) {
+            const dialog = document.getElementById('postDialog');
+            const titleElement = document.getElementById('dialogTitle');
+            const contentElement = document.getElementById('dialogContent');
+            const dateElement = document.getElementById('dialogDate');
+            const originalLinkElement = document.getElementById('dialogOriginalLink');
+            
+            // Set initial content
+            titleElement.textContent = postTitle;
+            contentElement.innerHTML = '<p>Loading...</p>';
+            dateElement.textContent = '';
+            originalLinkElement.href = '#';
+            
+            // Show dialog
+            dialog.showModal();
+            
+            // Fetch post details
+            fetch(`/posts/${postId}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Failed to fetch post');
+                    }
+                    return response.text();
+                })
+                .then(html => {
+                    // Create a temporary div to parse the HTML
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = html;
+                    
+                    // Extract content from the parsed HTML
+                    const postContent = tempDiv.querySelector('.post-content');
+                    const postDate = tempDiv.querySelector('.post-date');
+                    const originalLink = tempDiv.querySelector('a[target="_blank"]');
+                    
+                    if (postContent) {
+                        contentElement.innerHTML = postContent.innerHTML;
+                    }
+                    
+                    if (postDate) {
+                        dateElement.textContent = postDate.textContent;
+                    }
+                    
+                    if (originalLink) {
+                        originalLinkElement.href = originalLink.href;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching post:', error);
+                    contentElement.innerHTML = '<p>Error loading post content.</p>';
+                });
+        }
+
+        function closePostDialog() {
+            const dialog = document.getElementById('postDialog');
+            dialog.close();
+        }
+
+        // Close dialog when clicking outside of it
+        document.getElementById('postDialog').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closePostDialog();
+            }
+        });
+
+        // Close dialog with Escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                closePostDialog();
             }
         });
     </script>

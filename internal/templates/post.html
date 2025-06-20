@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Post.Title}} - RSSGrid</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="post-dialog">
+        <div class="post-dialog-header">
+            <h1 class="post-title">{{.Post.Title}}</h1>
+            <div class="post-meta">
+                {{if not .Post.PublishedAt.IsZero}}
+                <span class="post-date">{{.Post.PublishedAt.Format "January 2, 2006 at 3:04 PM"}}</span>
+                {{end}}
+            </div>
+            <div class="post-actions">
+                <a href="{{.Post.Link}}" target="_blank" class="btn btn-primary">View Original</a>
+                <button class="btn btn-secondary" onclick="window.close()">Close</button>
+            </div>
+        </div>
+        <div class="post-content">
+            {{if .Post.Content}}
+                {{.Post.Content}}
+            {{else}}
+                <p>No content available for this post.</p>
+            {{end}}
+        </div>
+    </div>
+</body>
+</html> 

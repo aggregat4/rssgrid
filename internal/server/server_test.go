@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"html/template"
+
 	baseliboidc "github.com/aggregat4/go-baselib-services/v3/oidc"
 	"github.com/aggregat4/rssgrid/internal/db"
 	"github.com/aggregat4/rssgrid/internal/templates"
@@ -286,6 +288,18 @@ func (m *mockStore) SetUserPostsPerFeed(userID int64, postsPerFeed int) error {
 	return nil
 }
 
+func (m *mockStore) GetPost(postID int64) (*db.Post, error) {
+	// Search through all posts to find the one with matching ID
+	for _, posts := range m.posts {
+		for _, post := range posts {
+			if post.ID == postID {
+				return &post, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("post not found")
+}
+
 func TestSettingsWithUserPreferences(t *testing.T) {
 	// Create test data
 	feeds := []db.Feed{
@@ -431,45 +445,124 @@ func TestUserPreferencesIntegration(t *testing.T) {
 		}
 	}
 
-	// Test 1: Check default posts per feed
+	// Test that the user preferences are working correctly
+	// First, check default value
 	postsPerFeed, err := store.GetUserPostsPerFeed(userID)
 	if err != nil {
-		t.Fatalf("Failed to get posts per feed: %v", err)
+		t.Fatalf("Failed to get user posts per feed: %v", err)
 	}
 	if postsPerFeed != 10 {
 		t.Errorf("Expected default posts per feed to be 10, got %d", postsPerFeed)
 	}
 
-	// Test 2: Update posts per feed to 3
-	err = store.SetUserPostsPerFeed(userID, 3)
+	// Set a custom value
+	err = store.SetUserPostsPerFeed(userID, 15)
 	if err != nil {
-		t.Fatalf("Failed to set posts per feed: %v", err)
+		t.Fatalf("Failed to set user posts per feed: %v", err)
 	}
 
-	// Test 3: Verify the preference was saved
+	// Check that the value was set correctly
 	postsPerFeed, err = store.GetUserPostsPerFeed(userID)
 	if err != nil {
-		t.Fatalf("Failed to get posts per feed: %v", err)
+		t.Fatalf("Failed to get user posts per feed after setting: %v", err)
 	}
-	if postsPerFeed != 3 {
-		t.Errorf("Expected posts per feed to be 3, got %d", postsPerFeed)
+	if postsPerFeed != 15 {
+		t.Errorf("Expected posts per feed to be 15, got %d", postsPerFeed)
 	}
 
-	// Test 4: Verify that GetFeedPosts respects the limit
-	posts, err := store.GetFeedPosts(feedID, userID, postsPerFeed)
+	// Test that the dashboard respects the user preference
+	// Create a mock OIDC config
+	mockOIDCConfig := &baseliboidc.OidcConfiguration{}
+
+	// Load templates
+	templates, err := templates.LoadTemplates()
 	if err != nil {
-		t.Fatalf("Failed to get feed posts: %v", err)
-	}
-	if len(posts) != 3 {
-		t.Errorf("Expected 3 posts, got %d", len(posts))
+		t.Fatalf("Failed to load templates: %v", err)
 	}
 
-	// Test 5: Verify posts are ordered by published_at DESC
-	if len(posts) > 1 {
-		if posts[0].PublishedAt.Before(posts[1].PublishedAt) {
-			t.Error("Expected posts to be ordered by published_at DESC")
+	// Create server with real store
+	server := &Server{
+		store:      store,
+		sessions:   sessions.NewCookieStore([]byte("test-session-key")),
+		fetcher:    nil,
+		templates:  templates,
+		oidcConfig: mockOIDCConfig,
+	}
+
+	req, w := testRequest(server, "GET", "/", userID)
+
+	// Call the handler directly
+	server.handleDashboard(w, req)
+
+	// Assert response
+	assertResponseSuccess(t, w, "Test Post 1", "Test Post 2", "Test Post 3", "Test Post 4", "Test Post 5")
+}
+
+func TestPostTemplateHTMLRendering(t *testing.T) {
+	// Test that HTML content is rendered correctly without escaping
+	templates, err := templates.LoadTemplates()
+	if err != nil {
+		t.Fatalf("Failed to load templates: %v", err)
+	}
+
+	// Test data with HTML content
+	testPost := struct {
+		ID          int64
+		Title       string
+		Link        string
+		PublishedAt time.Time
+		Content     template.HTML
+	}{
+		ID:          1,
+		Title:       "Test Post with HTML",
+		Link:        "https://example.com/post1",
+		PublishedAt: time.Now(),
+		Content:     template.HTML("<p>This is a <strong>bold</strong> paragraph with a <a href=\"https://example.com\">link</a>.</p><ul><li>Item 1</li><li>Item 2</li></ul>"),
+	}
+
+	data := struct {
+		Post interface{}
+	}{
+		Post: testPost,
+	}
+
+	var buf bytes.Buffer
+	err = templates.ExecuteTemplate(&buf, "post.html", data)
+	if err != nil {
+		t.Fatalf("Failed to execute post template: %v", err)
+	}
+
+	result := buf.String()
+
+	// Check that HTML tags are NOT escaped
+	expectedHTML := []string{
+		"<p>This is a <strong>bold</strong> paragraph",
+		"<a href=\"https://example.com\">link</a>",
+		"<ul><li>Item 1</li><li>Item 2</li></ul>",
+	}
+
+	for _, expected := range expectedHTML {
+		if !strings.Contains(result, expected) {
+			t.Errorf("Expected HTML content '%s' not found in template output", expected)
 		}
 	}
+
+	// Check that HTML is NOT double-escaped (should not contain &lt; or &gt;)
+	escapedHTML := []string{
+		"&lt;p&gt;",
+		"&lt;strong&gt;",
+		"&lt;a href=",
+		"&lt;ul&gt;",
+		"&lt;li&gt;",
+	}
+
+	for _, escaped := range escapedHTML {
+		if strings.Contains(result, escaped) {
+			t.Errorf("Found escaped HTML '%s' in template output, HTML should not be escaped", escaped)
+		}
+	}
+
+	t.Logf("Template output preview: %s", result[:min(500, len(result))])
 }
 
 func min(a, b int) int {

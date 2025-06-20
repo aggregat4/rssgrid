@@ -83,6 +83,14 @@ body {
 .post-link {
     color: var(--text-color);
     text-decoration: none;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
 }
 
 .post-link:hover {
@@ -204,4 +212,147 @@ body {
     background-color: #fee2e2;
     color: #991b1b;
     border: 1px solid #fecaca;
+}
+
+/* Post Dialog Styles */
+.post-dialog-modal {
+    border: none;
+    border-radius: 0.5rem;
+    padding: 0;
+    max-width: 90vw;
+    max-height: 90vh;
+    width: 800px;
+    background: white;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+.post-dialog-modal::backdrop {
+    background-color: rgba(0, 0, 0, 0.5);
+}
+
+.post-dialog-content {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    max-height: 90vh;
+}
+
+.post-dialog-header {
+    padding: 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+    background-color: #f9fafb;
+    border-radius: 0.5rem 0.5rem 0 0;
+}
+
+.post-dialog-header .post-title {
+    margin: 0 0 0.5rem 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+.post-meta {
+    margin-bottom: 1rem;
+}
+
+.post-date {
+    color: #6b7280;
+    font-size: 0.875rem;
+}
+
+.post-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+}
+
+.post-content {
+    padding: 1.5rem;
+    overflow-y: auto;
+    flex: 1;
+    line-height: 1.6;
+}
+
+.post-content h1,
+.post-content h2,
+.post-content h3,
+.post-content h4,
+.post-content h5,
+.post-content h6 {
+    margin-top: 1.5rem;
+    margin-bottom: 0.75rem;
+    font-weight: 600;
+}
+
+.post-content p {
+    margin-bottom: 1rem;
+}
+
+.post-content img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 0.25rem;
+    margin: 1rem 0;
+}
+
+.post-content a {
+    color: var(--primary-color);
+    text-decoration: none;
+}
+
+.post-content a:hover {
+    text-decoration: underline;
+}
+
+.post-content blockquote {
+    border-left: 4px solid var(--primary-color);
+    padding-left: 1rem;
+    margin: 1rem 0;
+    font-style: italic;
+    color: #6b7280;
+}
+
+.post-content pre {
+    background-color: #f3f4f6;
+    padding: 1rem;
+    border-radius: 0.25rem;
+    overflow-x: auto;
+    margin: 1rem 0;
+}
+
+.post-content code {
+    background-color: #f3f4f6;
+    padding: 0.125rem 0.25rem;
+    border-radius: 0.125rem;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 0.875rem;
+}
+
+.post-content pre code {
+    background-color: transparent;
+    padding: 0;
+}
+
+/* Responsive design for dialog */
+@media (max-width: 768px) {
+    .post-dialog-modal {
+        width: 95vw;
+        max-height: 95vh;
+    }
+    
+    .post-dialog-header {
+        padding: 1rem;
+    }
+    
+    .post-content {
+        padding: 1rem;
+    }
+    
+    .post-actions {
+        flex-direction: column;
+    }
+    
+    .post-actions .btn {
+        width: 100%;
+    }
 } 

@@ -468,3 +468,22 @@ func (store *Store) SetUserPostsPerFeed(userId int64, postsPerFeed int) error {
 	}
 	return nil
 }
+
+// GetPost retrieves a single post by its ID
+func (store *Store) GetPost(postID int64) (*Post, error) {
+	var p Post
+	err := store.db.QueryRow(`
+		SELECT id, title, link, published_at, content
+		FROM posts
+		WHERE id = ?
+	`, postID).Scan(&p.ID, &p.Title, &p.Link, &p.PublishedAt, &p.Content)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("post not found")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("error querying post: %w", err)
+	}
+
+	return &p, nil
+}
