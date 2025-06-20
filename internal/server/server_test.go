@@ -573,6 +573,65 @@ func TestLogout(t *testing.T) {
 	}
 }
 
+func TestDashboardTemplateRendering(t *testing.T) {
+	// Test that the dashboard template renders correctly with dates
+	templates, err := templates.LoadTemplates()
+	if err != nil {
+		t.Fatalf("Failed to load templates: %v", err)
+	}
+
+	// Test data with posts that have dates
+	testTime := time.Date(2024, 1, 15, 14, 30, 0, 0, time.UTC)
+	testFeeds := []struct {
+		Feed  db.Feed
+		Posts []db.Post
+	}{
+		{
+			Feed: db.Feed{ID: 1, Title: "Test Feed 1"},
+			Posts: []db.Post{
+				{ID: 1, Title: "Test Post 1", Link: "https://example.com/post1", PublishedAt: testTime, Seen: false},
+				{ID: 2, Title: "Test Post 2", Link: "https://example.com/post2", PublishedAt: testTime.Add(-24 * time.Hour), Seen: true},
+			},
+		},
+	}
+
+	data := struct {
+		Feeds []struct {
+			Feed  db.Feed
+			Posts []db.Post
+		}
+	}{
+		Feeds: testFeeds,
+	}
+
+	var buf bytes.Buffer
+	err = templates.ExecuteTemplate(&buf, "dashboard.html", data)
+	if err != nil {
+		t.Fatalf("Failed to execute dashboard template: %v", err)
+	}
+
+	result := buf.String()
+
+	// Check for expected content including dates
+	expectedContent := []string{
+		"Test Feed 1",
+		"Test Post 1",
+		"Test Post 2",
+		"January 15, 2024 at 2:30 PM",
+		"January 14, 2024 at 2:30 PM",
+		"RSSGrid",
+		"seen", // Check that the seen class is applied
+	}
+
+	for _, expected := range expectedContent {
+		if !strings.Contains(result, expected) {
+			t.Errorf("Expected content '%s' not found in dashboard template output", expected)
+		}
+	}
+
+	t.Logf("Dashboard template output preview: %s", result[:min(500, len(result))])
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a

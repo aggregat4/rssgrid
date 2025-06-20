@@ -15,7 +15,6 @@ body {
 }
 
 .container {
-    max-width: 1200px;
     margin: 0 auto;
     padding: 1rem;
 }
@@ -65,7 +64,7 @@ body {
 .widget-header {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: top;
     margin-bottom: 1rem;
 }
 
@@ -88,6 +87,13 @@ body {
 
 .post-item {
     margin-bottom: 0.5rem;
+
+    .post-date {
+        margin-top: 0.125rem;
+        margin-bottom: 0.25rem;
+        font-style: italic;
+        font-size: 0.75rem;
+    }
 }
 
 .post-link {
@@ -108,7 +114,7 @@ body {
 
     &.seen {
         color: #6b7280;
-        font-style: italic;
+        /* font-style: italic; */
     }
 }
 
@@ -292,7 +298,6 @@ body {
 
 .post-date {
     color: #6b7280;
-    font-size: 0.875rem;
 }
 
 .post-actions {
