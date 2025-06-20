@@ -48,13 +48,19 @@ func (u *Updater) Stop() {
 }
 
 func (u *Updater) updateFeeds(ctx context.Context) error {
+	log.Printf("Starting feed update cycle")
+
 	// Get all unique feed URLs
 	feeds, err := u.store.GetAllFeeds()
 	if err != nil {
 		return err
 	}
 
+	log.Printf("Found %d feeds to update", len(feeds))
+
 	for _, feed := range feeds {
+		log.Printf("Updating feed: %s (%s)", feed.Title, feed.URL)
+
 		// Fetch and parse feed with cache awareness
 		content, err := u.fetcher.FetchFeed(ctx, feed.URL)
 		if err != nil {
@@ -70,16 +76,24 @@ func (u *Updater) updateFeeds(ctx context.Context) error {
 
 		// Update feed title if it has changed
 		if content.Title != feed.Title {
+			log.Printf("Updating feed title from '%s' to '%s'", feed.Title, content.Title)
 			if err := u.store.UpdateFeedTitle(feed.ID, content.Title); err != nil {
 				log.Printf("Error updating feed title: %v", err)
 			}
 		}
 
 		// Add new posts
+		newPostsCount := 0
 		for _, item := range content.Items {
 			if err := u.store.AddPost(feed.ID, item.GUID, item.Title, item.Link, item.PublishedAt, item.Content); err != nil {
 				log.Printf("Error adding post: %v", err)
+			} else {
+				newPostsCount++
 			}
+		}
+
+		if newPostsCount > 0 {
+			log.Printf("Added %d new posts from feed: %s", newPostsCount, feed.Title)
 		}
 
 		// Update last fetched timestamp
@@ -88,5 +102,6 @@ func (u *Updater) updateFeeds(ctx context.Context) error {
 		}
 	}
 
+	log.Printf("Feed update cycle completed")
 	return nil
 }
