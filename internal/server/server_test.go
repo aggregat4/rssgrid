@@ -554,6 +554,25 @@ func TestPostTemplateRendering(t *testing.T) {
 	t.Logf("Post template output preview: %s", result[:min(500, len(result))])
 }
 
+func TestLogout(t *testing.T) {
+	server := testServer(t, mockStoreEmpty())
+	req, w := testRequest(server, "POST", "/logout", 1)
+
+	// Call the handler directly
+	server.handleLogout(w, req)
+
+	// Check that we get a redirect
+	if w.Code != http.StatusSeeOther {
+		t.Errorf("Expected status code %d, got %d", http.StatusSeeOther, w.Code)
+	}
+
+	// Check that we're redirected to the dashboard
+	location := w.Header().Get("Location")
+	if location != "/" {
+		t.Errorf("Expected redirect to '/', got '%s'", location)
+	}
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a
