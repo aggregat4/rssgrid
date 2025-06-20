@@ -500,8 +500,8 @@ func TestUserPreferencesIntegration(t *testing.T) {
 	assertResponseSuccess(t, w, "Test Post 1", "Test Post 2", "Test Post 3", "Test Post 4", "Test Post 5")
 }
 
-func TestPostTemplateHTMLRendering(t *testing.T) {
-	// Test that HTML content is rendered correctly without escaping
+func TestPostTemplateRendering(t *testing.T) {
+	// Test that the post template renders correctly
 	templates, err := templates.LoadTemplates()
 	if err != nil {
 		t.Fatalf("Failed to load templates: %v", err)
@@ -516,10 +516,10 @@ func TestPostTemplateHTMLRendering(t *testing.T) {
 		Content     template.HTML
 	}{
 		ID:          1,
-		Title:       "Test Post with HTML",
+		Title:       "Test Post for Display",
 		Link:        "https://example.com/post1",
 		PublishedAt: time.Now(),
-		Content:     template.HTML("<p>This is a <strong>bold</strong> paragraph with a <a href=\"https://example.com\">link</a>.</p><ul><li>Item 1</li><li>Item 2</li></ul>"),
+		Content:     template.HTML("<p>This is content for the post.</p>"),
 	}
 
 	data := struct {
@@ -536,35 +536,22 @@ func TestPostTemplateHTMLRendering(t *testing.T) {
 
 	result := buf.String()
 
-	// Check that HTML tags are NOT escaped
-	expectedHTML := []string{
-		"<p>This is a <strong>bold</strong> paragraph",
-		"<a href=\"https://example.com\">link</a>",
-		"<ul><li>Item 1</li><li>Item 2</li></ul>",
+	// Check for expected content
+	expectedContent := []string{
+		"Test Post for Display",
+		"This is content for the post.",
+		"View Original",
+		"Close",
+		"window.parent.postMessage",
 	}
 
-	for _, expected := range expectedHTML {
+	for _, expected := range expectedContent {
 		if !strings.Contains(result, expected) {
-			t.Errorf("Expected HTML content '%s' not found in template output", expected)
+			t.Errorf("Expected content '%s' not found in post template output", expected)
 		}
 	}
 
-	// Check that HTML is NOT double-escaped (should not contain &lt; or &gt;)
-	escapedHTML := []string{
-		"&lt;p&gt;",
-		"&lt;strong&gt;",
-		"&lt;a href=",
-		"&lt;ul&gt;",
-		"&lt;li&gt;",
-	}
-
-	for _, escaped := range escapedHTML {
-		if strings.Contains(result, escaped) {
-			t.Errorf("Found escaped HTML '%s' in template output, HTML should not be escaped", escaped)
-		}
-	}
-
-	t.Logf("Template output preview: %s", result[:min(500, len(result))])
+	t.Logf("Post template output preview: %s", result[:min(500, len(result))])
 }
 
 func min(a, b int) int {

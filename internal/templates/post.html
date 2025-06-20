@@ -5,6 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.Post.Title}} - RSSGrid</title>
     <link rel="stylesheet" href="/static/styles.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: white;
+        }
+        .post-dialog {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+    </style>
 </head>
 <body>
     <div class="post-dialog">
@@ -17,7 +29,7 @@
             </div>
             <div class="post-actions">
                 <a href="{{.Post.Link}}" target="_blank" class="btn btn-primary">View Original</a>
-                <button class="btn btn-secondary" onclick="window.close()">Close</button>
+                <button class="btn btn-secondary" onclick="window.parent.postMessage({type: 'closeDialog'}, '*')">Close</button>
             </div>
         </div>
         <div class="post-content">
@@ -28,5 +40,14 @@
             {{end}}
         </div>
     </div>
+
+    <script>
+        // Handle Escape key inside the iframe
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                window.parent.postMessage({type: 'closeDialog'}, '*');
+            }
+        });
+    </script>
 </body>
 </html> 

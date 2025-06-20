@@ -45,19 +45,7 @@
     <!-- Post Detail Dialog -->
     <dialog id="postDialog" class="post-dialog-modal">
         <div class="post-dialog-content">
-            <div class="post-dialog-header">
-                <h2 id="dialogTitle" class="post-title"></h2>
-                <div class="post-meta">
-                    <span id="dialogDate" class="post-date"></span>
-                </div>
-                <div class="post-actions">
-                    <a id="dialogOriginalLink" href="#" target="_blank" class="btn btn-primary">View Original</a>
-                    <button class="btn btn-secondary" onclick="closePostDialog()">Close</button>
-                </div>
-            </div>
-            <div id="dialogContent" class="post-content">
-                <p>Loading...</p>
-            </div>
+            <iframe id="postIframe" class="post-iframe" src="about:blank"></iframe>
         </div>
     </dialog>
 
@@ -70,7 +58,6 @@
                 e.preventDefault(); // Prevent navigation since href="#"
                 
                 const postId = e.target.dataset.postId;
-                const postTitle = e.target.dataset.postTitle;
                 if (postId) {
                     // Mark as seen
                     fetch(`/posts/${postId}/seen`, {
@@ -81,7 +68,7 @@
                     lastOpenedPostButton = e.target;
                     
                     // Open post dialog
-                    openPostDialog(postId, postTitle);
+                    openPostDialog(postId);
                 }
             }
         });
@@ -93,6 +80,10 @@
                 lastOpenedPostButton.classList.add('seen');
                 lastOpenedPostButton = null;
             }
+            
+            // Clear the iframe source to prevent showing old content
+            const iframe = document.getElementById('postIframe');
+            iframe.src = 'about:blank';
         });
 
         // Handle clicking outside the dialog to dismiss it
@@ -102,61 +93,18 @@
             }
         });
 
-        function openPostDialog(postId, postTitle) {
-            const dialog = document.getElementById('postDialog');
-            const titleElement = document.getElementById('dialogTitle');
-            const contentElement = document.getElementById('dialogContent');
-            const dateElement = document.getElementById('dialogDate');
-            const originalLinkElement = document.getElementById('dialogOriginalLink');
-            
-            // Set initial content
-            titleElement.textContent = postTitle;
-            contentElement.innerHTML = '<p>Loading...</p>';
-            dateElement.textContent = '';
-            originalLinkElement.href = '#';
-            
-            // Show dialog
-            dialog.showModal();
-            
-            // Fetch post details
-            fetch(`/posts/${postId}`)
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error('Failed to fetch post');
-                    }
-                    return response.text();
-                })
-                .then(html => {
-                    // Create a temporary div to parse the HTML
-                    const tempDiv = document.createElement('div');
-                    tempDiv.innerHTML = html;
-                    
-                    // Extract content from the parsed HTML
-                    const postContent = tempDiv.querySelector('.post-content');
-                    const postDate = tempDiv.querySelector('.post-date');
-                    const originalLink = tempDiv.querySelector('a[target="_blank"]');
-                    
-                    if (postContent) {
-                        contentElement.innerHTML = postContent.innerHTML;
-                    }
-                    
-                    if (postDate) {
-                        dateElement.textContent = postDate.textContent;
-                    }
-                    
-                    if (originalLink) {
-                        originalLinkElement.href = originalLink.href;
-                    }
-                })
-                .catch(error => {
-                    console.error('Error fetching post:', error);
-                    contentElement.innerHTML = '<p>Error loading post content.</p>';
-                });
-        }
+        // Listen for messages from the iframe
+        window.addEventListener('message', function(event) {
+            if (event.data.type === 'closeDialog') {
+                document.getElementById('postDialog').close();
+            }
+        });
 
-        function closePostDialog() {
+        function openPostDialog(postId) {
             const dialog = document.getElementById('postDialog');
-            dialog.close();
+            const iframe = document.getElementById('postIframe');
+            iframe.src = `/posts/${postId}`;
+            dialog.showModal();
         }
     </script>
 </body>
