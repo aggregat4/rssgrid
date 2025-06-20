@@ -632,6 +632,235 @@ func TestDashboardTemplateRendering(t *testing.T) {
 	t.Logf("Dashboard template output preview: %s", result[:min(500, len(result))])
 }
 
+func TestDashboardFeedLifecycle(t *testing.T) {
+	// Create a temporary database
+	tmpFile, err := os.CreateTemp("", "test-*.db")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	tmpFile.Close()
+
+	// Create a real store
+	store, err := db.NewStore(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
+
+	// Create a test user
+	userID, err := store.GetOrCreateUser("test-subject", "test-issuer")
+	if err != nil {
+		t.Fatalf("Failed to create test user: %v", err)
+	}
+
+	// Load templates
+	templates, err := templates.LoadTemplates()
+	if err != nil {
+		t.Fatalf("Failed to load templates: %v", err)
+	}
+
+	// Create a mock OIDC config
+	mockOIDCConfig := &baseliboidc.OidcConfiguration{}
+
+	// Create server with real store
+	server := &Server{
+		store:      store,
+		sessions:   sessions.NewCookieStore([]byte("test-session-key")),
+		fetcher:    nil,
+		templates:  templates,
+		oidcConfig: mockOIDCConfig,
+	}
+
+	// Phase 1: Add initial feeds with content
+	t.Log("Phase 1: Adding initial feeds")
+	initialFeeds := []struct {
+		url   string
+		title string
+		posts []struct {
+			title string
+			link  string
+		}
+	}{
+		{
+			url:   "https://tech.example.com/feed.xml",
+			title: "Tech News",
+			posts: []struct {
+				title string
+				link  string
+			}{
+				{"New AI Breakthrough", "https://tech.example.com/ai-news"},
+				{"Latest Programming Trends", "https://tech.example.com/programming"},
+				{"Cloud Computing Update", "https://tech.example.com/cloud"},
+			},
+		},
+		{
+			url:   "https://sports.example.com/feed.xml",
+			title: "Sports Central",
+			posts: []struct {
+				title string
+				link  string
+			}{
+				{"Championship Game Results", "https://sports.example.com/championship"},
+				{"Player Transfer News", "https://sports.example.com/transfer"},
+			},
+		},
+		{
+			url:   "https://science.example.com/feed.xml",
+			title: "Science Daily",
+			posts: []struct {
+				title string
+				link  string
+			}{
+				{"Mars Mission Update", "https://science.example.com/mars"},
+				{"Climate Research Findings", "https://science.example.com/climate"},
+				{"Medical Breakthrough", "https://science.example.com/medical"},
+			},
+		},
+		{
+			url:   "https://cooking.example.com/feed.xml",
+			title: "Cooking Corner",
+			posts: []struct {
+				title string
+				link  string
+			}{
+				{"Easy Pasta Recipes", "https://cooking.example.com/pasta"},
+				{"Quick Breakfast Ideas", "https://cooking.example.com/breakfast"},
+			},
+		},
+	}
+
+	feedIDs := make(map[string]int64)
+	for _, feed := range initialFeeds {
+		feedID, err := store.AddFeedForUser(userID, feed.url)
+		if err != nil {
+			t.Fatalf("Failed to add feed %s: %v", feed.title, err)
+		}
+		feedIDs[feed.title] = feedID
+
+		// Update feed title
+		err = store.UpdateFeedTitle(feedID, feed.title)
+		if err != nil {
+			t.Fatalf("Failed to update feed title for %s: %v", feed.title, err)
+		}
+
+		// Add posts for this feed
+		for i, post := range feed.posts {
+			err := store.AddPost(feedID, fmt.Sprintf("guid-%s-%d", feed.title, i), post.title, post.link, time.Now().Add(-time.Duration(i)*time.Hour), "")
+			if err != nil {
+				t.Fatalf("Failed to add post %s to feed %s: %v", post.title, feed.title, err)
+			}
+		}
+	}
+
+	// Verify initial dashboard shows all feeds and posts
+	t.Log("Verifying initial dashboard")
+	req, w := testRequest(server, "GET", "/", userID)
+	server.handleDashboard(w, req)
+	assertResponseSuccess(t, w, "Tech News", "Sports Central", "Science Daily", "Cooking Corner")
+	assertResponseSuccess(t, w, "New AI Breakthrough", "Championship Game Results", "Mars Mission Update", "Easy Pasta Recipes")
+
+	// Phase 2: Remove half of the feeds (Tech News and Sports Central)
+	t.Log("Phase 2: Removing half of the feeds")
+	feedsToRemove := []string{"Tech News", "Sports Central"}
+	for _, feedTitle := range feedsToRemove {
+		feedID := feedIDs[feedTitle]
+		err := store.DeleteFeed(fmt.Sprintf("%d", feedID))
+		if err != nil {
+			t.Fatalf("Failed to delete feed %s: %v", feedTitle, err)
+		}
+	}
+
+	// Verify dashboard shows only remaining feeds
+	t.Log("Verifying dashboard after removal")
+	req, w = testRequest(server, "GET", "/", userID)
+	server.handleDashboard(w, req)
+	assertResponseSuccess(t, w, "Science Daily", "Cooking Corner")
+	assertResponseSuccess(t, w, "Mars Mission Update", "Easy Pasta Recipes")
+	assertResponseNotContains(t, w, "Tech News", "Sports Central", "New AI Breakthrough", "Championship Game Results")
+
+	// Phase 3: Add new feeds with different content
+	t.Log("Phase 3: Adding new feeds")
+	newFeeds := []struct {
+		url   string
+		title string
+		posts []struct {
+			title string
+			link  string
+		}
+	}{
+		{
+			url:   "https://travel.example.com/feed.xml",
+			title: "Travel Adventures",
+			posts: []struct {
+				title string
+				link  string
+			}{
+				{"Best European Destinations", "https://travel.example.com/europe"},
+				{"Budget Travel Tips", "https://travel.example.com/budget"},
+				{"Adventure Tourism Guide", "https://travel.example.com/adventure"},
+			},
+		},
+		{
+			url:   "https://finance.example.com/feed.xml",
+			title: "Financial Insights",
+			posts: []struct {
+				title string
+				link  string
+			}{
+				{"Investment Strategies", "https://finance.example.com/investment"},
+				{"Market Analysis", "https://finance.example.com/market"},
+			},
+		},
+	}
+
+	for _, feed := range newFeeds {
+		feedID, err := store.AddFeedForUser(userID, feed.url)
+		if err != nil {
+			t.Fatalf("Failed to add new feed %s: %v", feed.title, err)
+		}
+		feedIDs[feed.title] = feedID
+
+		// Update feed title
+		err = store.UpdateFeedTitle(feedID, feed.title)
+		if err != nil {
+			t.Fatalf("Failed to update feed title for %s: %v", feed.title, err)
+		}
+
+		// Add posts for this feed
+		for i, post := range feed.posts {
+			err := store.AddPost(feedID, fmt.Sprintf("guid-%s-%d", feed.title, i), post.title, post.link, time.Now().Add(-time.Duration(i)*time.Hour), "")
+			if err != nil {
+				t.Fatalf("Failed to add post %s to feed %s: %v", post.title, feed.title, err)
+			}
+		}
+	}
+
+	// Verify final dashboard shows all current feeds and posts
+	t.Log("Verifying final dashboard")
+	req, w = testRequest(server, "GET", "/", userID)
+	server.handleDashboard(w, req)
+
+	// Should contain remaining original feeds
+	assertResponseSuccess(t, w, "Science Daily", "Cooking Corner")
+	assertResponseSuccess(t, w, "Mars Mission Update", "Easy Pasta Recipes")
+
+	// Should contain new feeds
+	assertResponseSuccess(t, w, "Travel Adventures", "Financial Insights")
+	assertResponseSuccess(t, w, "Best European Destinations", "Investment Strategies")
+
+	// Should NOT contain removed feeds
+	assertResponseNotContains(t, w, "Tech News", "Sports Central", "New AI Breakthrough", "Championship Game Results")
+
+	// Verify settings page shows correct feeds
+	t.Log("Verifying settings page")
+	req, w = testRequest(server, "GET", "/settings", userID)
+	server.handleSettings(w, req)
+	assertResponseSuccess(t, w, "Science Daily", "Cooking Corner", "Travel Adventures", "Financial Insights")
+	assertResponseNotContains(t, w, "Tech News", "Sports Central")
+
+	t.Log("Dashboard feed lifecycle test completed successfully")
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a
