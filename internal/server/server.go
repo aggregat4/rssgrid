@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"html/template"
 	"log"
@@ -182,6 +183,10 @@ func (s *Server) logErrorAndRespond(w http.ResponseWriter, statusCode int, userM
 }
 
 func (s *Server) Start(addr string) error {
+	return s.StartWithContext(context.Background(), addr)
+}
+
+func (s *Server) StartWithContext(ctx context.Context, addr string) error {
 	oidcAuthenticationMiddleware := s.oidcConfig.CreateOidcAuthenticationMiddleware(
 		func(r *http.Request) bool {
 			session, err := s.sessions.Get(r, "user_session")
@@ -249,8 +254,36 @@ func (s *Server) Start(addr string) error {
 		r.Post("/feeds/{feedId}/seen", s.handleMarkAllSeen)
 	})
 
+	server := &http.Server{
+		Addr:    addr,
+		Handler: r,
+	}
+
 	log.Printf("Starting server on %s", addr)
-	return http.ListenAndServe(addr, r)
+
+	// Start server in a goroutine
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("HTTP server error: %v", err)
+		}
+	}()
+
+	// Wait for context cancellation
+	<-ctx.Done()
+
+	log.Printf("Shutting down HTTP server...")
+
+	// Create a context with timeout for graceful shutdown
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Error during server shutdown: %v", err)
+		return err
+	}
+
+	log.Printf("HTTP server shutdown complete")
+	return nil
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {

@@ -66,10 +66,9 @@ func main() {
 		log.Println("Shutting down...")
 		cancel()
 		updater.Stop()
-		os.Exit(0)
 	}()
 
-	if err := srv.Start(cfg.Addr); err != nil {
+	if err := srv.StartWithContext(ctx, cfg.Addr); err != nil {
 		log.Fatalf("Error starting server: %v", err)
 	}
 }
