@@ -21,8 +21,8 @@ A simple, fast, and persistent personal dashboard for consuming text-based conte
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/boris/go-rssgrid.git
-   cd go-rssgrid
+   git clone https://github.com/aggregat4/rssgrid.git
+   cd rssgrid
    ```
 
 2. Install dependencies:
@@ -103,4 +103,4 @@ The project structure is organized as follows:
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the Apache Public License 2.0 - see the LICENSE file for details.
