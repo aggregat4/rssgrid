@@ -49,19 +49,41 @@
 
             <h2>Your Feeds</h2>
             {{if .Feeds}}
-            <ul class="feed-list">
-                {{range .Feeds}}
-                <li class="feed-item">
-                    <div class="feed-info">
-                        <h3>{{.Title}}</h3>
-                        <p>{{.URL}}</p>
-                    </div>
-                    <form action="/settings/feeds/{{.ID}}/delete" method="POST">
-                        <button type="submit" class="btn btn-danger">Remove</button>
-                    </form>
-                </li>
-                {{end}}
-            </ul>
+            <div class="feed-reorder-section">
+                <p class="feed-reorder-hint">Use the up and down arrows to reorder your feeds on the dashboard:</p>
+                <ul class="feed-list">
+                    {{range $index, $feed := .Feeds}}
+                    <li class="feed-item">
+                        <div class="feed-info">
+                            <h3>{{$feed.Title}}</h3>
+                            <p>{{$feed.URL}}</p>
+                        </div>
+                        <div class="feed-actions">
+                            <div class="feed-reorder-buttons">
+                                {{if gt $index 0}}
+                                <form action="/settings/feeds/{{$feed.ID}}/move-up" method="POST" style="display: inline;">
+                                    <button type="submit" class="btn btn-icon" title="Move up">↑</button>
+                                </form>
+                                {{else}}
+                                <button type="button" class="btn btn-icon disabled" disabled title="Already at top">↑</button>
+                                {{end}}
+                                
+                                {{if lt $index (sub (len $.Feeds) 1)}}
+                                <form action="/settings/feeds/{{$feed.ID}}/move-down" method="POST" style="display: inline;">
+                                    <button type="submit" class="btn btn-icon" title="Move down">↓</button>
+                                </form>
+                                {{else}}
+                                <button type="button" class="btn btn-icon disabled" disabled title="Already at bottom">↓</button>
+                                {{end}}
+                            </div>
+                            <form action="/settings/feeds/{{$feed.ID}}/delete" method="POST" style="display: inline;">
+                                <button type="submit" class="btn btn-danger">Remove</button>
+                            </form>
+                        </div>
+                    </li>
+                    {{end}}
+                </ul>
+            </div>
             {{else}}
             <p>No feeds added yet. Add your first feed above!</p>
             {{end}}

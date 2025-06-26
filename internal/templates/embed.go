@@ -15,8 +15,14 @@ var staticFS embed.FS
 
 // LoadTemplates loads all HTML templates from the embedded filesystem
 func LoadTemplates() (*template.Template, error) {
-	// Create a template set with a base template
-	tmpl := template.New("")
+	// Create a template set with functions
+	funcMap := template.FuncMap{
+		"sub": func(a, b int) int {
+			return a - b
+		},
+	}
+
+	tmpl := template.New("").Funcs(funcMap)
 
 	// Walk through all .html files in the embedded filesystem
 	err := fs.WalkDir(templateFS, ".", func(path string, d fs.DirEntry, err error) error {

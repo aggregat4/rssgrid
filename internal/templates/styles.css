@@ -216,19 +216,45 @@ body {
     border: 1px solid var(--border-color);
     border-radius: 0.5rem;
     margin-bottom: 1rem;
+    transition: all 0.2s ease;
 }
 
 .feed-info {
-    h3 {
-        margin: 0;
-        font-size: 1.1rem;
-    }
+    flex: 1;
+    margin-right: 1rem;
+}
 
-    p {
-        margin: 0.5rem 0 0;
-        color: #6b7280;
-        font-size: 0.9rem;
-    }
+.feed-info h3 {
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+.feed-info p {
+    margin: 0.5rem 0 0;
+    color: #6b7280;
+    font-size: 0.9rem;
+}
+
+.feed-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.feed-reorder-buttons {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.btn-icon.disabled {
+    background-color: #d1d5db;
+    color: #9ca3af;
+    cursor: not-allowed;
+}
+
+.btn-icon.disabled:hover {
+    background-color: #d1d5db;
+    opacity: 1;
 }
 
 .flash-messages {
@@ -448,5 +474,91 @@ body {
 @media (min-width: 1200px) {
     .grid {
         column-count: 3;
+    }
+}
+
+/* Feed Reordering Styles */
+.feed-reorder-section {
+    margin: 2rem 0;
+}
+
+.feed-reorder-hint {
+    color: #6b7280;
+    font-size: 0.9rem;
+    margin-bottom: 1rem;
+    font-style: italic;
+}
+
+.feed-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.feed-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    background-color: white;
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    margin-bottom: 1rem;
+    transition: all 0.2s ease;
+}
+
+.feed-info {
+    flex: 1;
+    margin-right: 1rem;
+}
+
+.feed-info h3 {
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+.feed-info p {
+    margin: 0.5rem 0 0;
+    color: #6b7280;
+    font-size: 0.9rem;
+}
+
+.feed-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.feed-reorder-buttons {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.btn-icon.disabled {
+    background-color: #d1d5db;
+    color: #9ca3af;
+    cursor: not-allowed;
+}
+
+.btn-icon.disabled:hover {
+    background-color: #d1d5db;
+    opacity: 1;
+}
+
+/* Responsive design for feed reordering */
+@media (max-width: 768px) {
+    .feed-item {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.5rem;
+    }
+    
+    .feed-info {
+        margin-right: 0;
+        margin-bottom: 0.5rem;
+    }
+    
+    .feed-actions {
+        justify-content: flex-end;
     }
 } 

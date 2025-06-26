@@ -12,9 +12,12 @@ import (
 
 	"html/template"
 
+	"context"
+
 	baseliboidc "github.com/aggregat4/go-baselib-services/v3/oidc"
 	"github.com/aggregat4/rssgrid/internal/db"
 	"github.com/aggregat4/rssgrid/internal/templates"
+	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/sessions"
 )
 
@@ -298,6 +301,14 @@ func (m *mockStore) GetPost(postID int64) (*db.Post, error) {
 		}
 	}
 	return nil, fmt.Errorf("post not found")
+}
+
+func (m *mockStore) MoveFeedUp(userID int64, feedID int64) error {
+	return nil
+}
+
+func (m *mockStore) MoveFeedDown(userID int64, feedID int64) error {
+	return nil
 }
 
 func TestSettingsWithUserPreferences(t *testing.T) {
@@ -859,6 +870,370 @@ func TestDashboardFeedLifecycle(t *testing.T) {
 	assertResponseNotContains(t, w, "Tech News", "Sports Central")
 
 	t.Log("Dashboard feed lifecycle test completed successfully")
+}
+
+func TestMoveFeedUp(t *testing.T) {
+	// Create test data
+	feeds := []db.Feed{
+		{ID: 1, URL: "https://example.com/feed1", Title: "Test Feed 1"},
+		{ID: 2, URL: "https://example.com/feed2", Title: "Test Feed 2"},
+	}
+
+	server := testServer(t, mockStoreWithFeeds(feeds, nil))
+
+	// Create a POST request to move feed up
+	req := httptest.NewRequest("POST", "/settings/feeds/2/move-up", nil)
+	w := httptest.NewRecorder()
+
+	// Create a session with a user ID
+	session, _ := server.sessions.Get(req, "user_session")
+	session.Values["user_id"] = int64(1)
+	session.Save(req, w)
+
+	// Set up chi router context with URL parameters
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("feedId", "2")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	// Call the handler directly
+	server.handleMoveFeedUp(w, req)
+
+	// Assert response - should redirect to settings
+	if w.Code != http.StatusSeeOther {
+		t.Errorf("Expected status code %d, got %d", http.StatusSeeOther, w.Code)
+	}
+
+	location := w.Header().Get("Location")
+	if location != "/settings" {
+		t.Errorf("Expected redirect to /settings, got %s", location)
+	}
+}
+
+func TestMoveFeedDown(t *testing.T) {
+	// Create test data
+	feeds := []db.Feed{
+		{ID: 1, URL: "https://example.com/feed1", Title: "Test Feed 1"},
+		{ID: 2, URL: "https://example.com/feed2", Title: "Test Feed 2"},
+	}
+
+	server := testServer(t, mockStoreWithFeeds(feeds, nil))
+
+	// Create a POST request to move feed down
+	req := httptest.NewRequest("POST", "/settings/feeds/1/move-down", nil)
+	w := httptest.NewRecorder()
+
+	// Create a session with a user ID
+	session, _ := server.sessions.Get(req, "user_session")
+	session.Values["user_id"] = int64(1)
+	session.Save(req, w)
+
+	// Set up chi router context with URL parameters
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("feedId", "1")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	// Call the handler directly
+	server.handleMoveFeedDown(w, req)
+
+	// Assert response - should redirect to settings
+	if w.Code != http.StatusSeeOther {
+		t.Errorf("Expected status code %d, got %d", http.StatusSeeOther, w.Code)
+	}
+
+	location := w.Header().Get("Location")
+	if location != "/settings" {
+		t.Errorf("Expected redirect to /settings, got %s", location)
+	}
+}
+
+func TestFeedReorderingIntegration(t *testing.T) {
+	// Create a temporary database
+	tmpFile, err := os.CreateTemp("", "test-*.db")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	tmpFile.Close()
+
+	// Create a real store
+	store, err := db.NewStore(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
+
+	// Create a test user
+	userID, err := store.GetOrCreateUser("test-subject", "test-issuer")
+	if err != nil {
+		t.Fatalf("Failed to create test user: %v", err)
+	}
+
+	// Add test feeds
+	feed1ID, err := store.AddFeedForUser(userID, "https://example.com/feed1.xml")
+	if err != nil {
+		t.Fatalf("Failed to add test feed 1: %v", err)
+	}
+
+	feed2ID, err := store.AddFeedForUser(userID, "https://example.com/feed2.xml")
+	if err != nil {
+		t.Fatalf("Failed to add test feed 2: %v", err)
+	}
+
+	feed3ID, err := store.AddFeedForUser(userID, "https://example.com/feed3.xml")
+	if err != nil {
+		t.Fatalf("Failed to add test feed 3: %v", err)
+	}
+
+	// Update feed titles
+	err = store.UpdateFeedTitle(feed1ID, "Feed 1")
+	if err != nil {
+		t.Fatalf("Failed to update feed 1 title: %v", err)
+	}
+
+	err = store.UpdateFeedTitle(feed2ID, "Feed 2")
+	if err != nil {
+		t.Fatalf("Failed to update feed 2 title: %v", err)
+	}
+
+	err = store.UpdateFeedTitle(feed3ID, "Feed 3")
+	if err != nil {
+		t.Fatalf("Failed to update feed 3 title: %v", err)
+	}
+
+	// Get initial feed order
+	initialFeeds, err := store.GetUserFeeds(userID)
+	if err != nil {
+		t.Fatalf("Failed to get initial feeds: %v", err)
+	}
+
+	t.Logf("Initial feed order:")
+	for i, feed := range initialFeeds {
+		t.Logf("  %d: %s (ID: %d, Position: %d)", i, feed.Title, feed.ID, feed.GridPosition)
+	}
+
+	// Verify initial order (should be Feed 1, Feed 2, Feed 3)
+	if len(initialFeeds) != 3 {
+		t.Fatalf("Expected 3 feeds, got %d", len(initialFeeds))
+	}
+
+	if initialFeeds[0].Title != "Feed 1" || initialFeeds[1].Title != "Feed 2" || initialFeeds[2].Title != "Feed 3" {
+		t.Errorf("Initial order incorrect: %s, %s, %s", initialFeeds[0].Title, initialFeeds[1].Title, initialFeeds[2].Title)
+	}
+
+	// Move Feed 2 down (should become Feed 1, Feed 3, Feed 2)
+	err = store.MoveFeedDown(userID, feed2ID)
+	if err != nil {
+		t.Fatalf("Failed to move Feed 2 down: %v", err)
+	}
+
+	// Get feeds after first move
+	feedsAfterFirstMove, err := store.GetUserFeeds(userID)
+	if err != nil {
+		t.Fatalf("Failed to get feeds after first move: %v", err)
+	}
+
+	t.Logf("After moving Feed 2 down:")
+	for i, feed := range feedsAfterFirstMove {
+		t.Logf("  %d: %s (ID: %d, Position: %d)", i, feed.Title, feed.ID, feed.GridPosition)
+	}
+
+	// Verify order after first move
+	if feedsAfterFirstMove[0].Title != "Feed 1" || feedsAfterFirstMove[1].Title != "Feed 3" || feedsAfterFirstMove[2].Title != "Feed 2" {
+		t.Errorf("Order after first move incorrect: %s, %s, %s", feedsAfterFirstMove[0].Title, feedsAfterFirstMove[1].Title, feedsAfterFirstMove[2].Title)
+	}
+
+	// Move Feed 1 down (should become Feed 3, Feed 1, Feed 2)
+	err = store.MoveFeedDown(userID, feed1ID)
+	if err != nil {
+		t.Fatalf("Failed to move Feed 1 down: %v", err)
+	}
+
+	// Get feeds after second move
+	feedsAfterSecondMove, err := store.GetUserFeeds(userID)
+	if err != nil {
+		t.Fatalf("Failed to get feeds after second move: %v", err)
+	}
+
+	t.Logf("After moving Feed 1 down:")
+	for i, feed := range feedsAfterSecondMove {
+		t.Logf("  %d: %s (ID: %d, Position: %d)", i, feed.Title, feed.ID, feed.GridPosition)
+	}
+
+	// Verify order after second move
+	if feedsAfterSecondMove[0].Title != "Feed 3" || feedsAfterSecondMove[1].Title != "Feed 1" || feedsAfterSecondMove[2].Title != "Feed 2" {
+		t.Errorf("Order after second move incorrect: %s, %s, %s", feedsAfterSecondMove[0].Title, feedsAfterSecondMove[1].Title, feedsAfterSecondMove[2].Title)
+	}
+
+	// Move Feed 2 up (should become Feed 3, Feed 2, Feed 1)
+	err = store.MoveFeedUp(userID, feed2ID)
+	if err != nil {
+		t.Fatalf("Failed to move Feed 2 up: %v", err)
+	}
+
+	// Get feeds after third move
+	feedsAfterThirdMove, err := store.GetUserFeeds(userID)
+	if err != nil {
+		t.Fatalf("Failed to get feeds after third move: %v", err)
+	}
+
+	t.Logf("After moving Feed 2 up:")
+	for i, feed := range feedsAfterThirdMove {
+		t.Logf("  %d: %s (ID: %d, Position: %d)", i, feed.Title, feed.ID, feed.GridPosition)
+	}
+
+	// Verify order after third move
+	if feedsAfterThirdMove[0].Title != "Feed 3" || feedsAfterThirdMove[1].Title != "Feed 2" || feedsAfterThirdMove[2].Title != "Feed 1" {
+		t.Errorf("Order after third move incorrect: %s, %s, %s", feedsAfterThirdMove[0].Title, feedsAfterThirdMove[1].Title, feedsAfterThirdMove[2].Title)
+	}
+
+	t.Log("Feed reordering integration test completed successfully")
+}
+
+func TestDashboardHTMLFeedOrdering(t *testing.T) {
+	// Create test feeds with specific grid positions
+	feeds := []db.Feed{
+		{ID: 1, URL: "https://example.com/feed1", Title: "First Feed", GridPosition: 1},
+		{ID: 2, URL: "https://example.com/feed2", Title: "Second Feed", GridPosition: 2},
+		{ID: 3, URL: "https://example.com/feed3", Title: "Third Feed", GridPosition: 3},
+	}
+	posts := map[int64][]db.Post{
+		1: {{ID: 1, Title: "Post from First Feed", Link: "https://example.com/post1"}},
+		2: {{ID: 2, Title: "Post from Second Feed", Link: "https://example.com/post2"}},
+		3: {{ID: 3, Title: "Post from Third Feed", Link: "https://example.com/post3"}},
+	}
+
+	// Use a real store to test reordering logic
+	tmpFile, err := os.CreateTemp("", "test-htmlorder-*.db")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	tmpFile.Close()
+
+	store, err := db.NewStore(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
+
+	userID, err := store.GetOrCreateUser("htmltest", "issuer")
+	if err != nil {
+		t.Fatalf("Failed to create user: %v", err)
+	}
+
+	// Add feeds for the user in the initial order
+	for _, f := range feeds {
+		_, err := store.AddFeedForUser(userID, f.URL)
+		if err != nil {
+			t.Fatalf("Failed to add feed: %v", err)
+		}
+		// Set the title and grid position
+		err = store.UpdateFeedTitle(f.ID, f.Title)
+		if err != nil {
+			t.Fatalf("Failed to set feed title: %v", err)
+		}
+	}
+
+	// Add posts for each feed
+	for feedID, postsForFeed := range posts {
+		for _, p := range postsForFeed {
+			err := store.AddPost(feedID, fmt.Sprintf("guid-%d", p.ID), p.Title, p.Link, time.Now(), "")
+			if err != nil {
+				t.Fatalf("Failed to add post: %v", err)
+			}
+		}
+	}
+
+	// Create a real server with the real store
+	srv := testServer(t, nil)
+	srv.store = store
+
+	req, w := testRequest(srv, "GET", "/", userID)
+	srv.handleDashboard(w, req)
+	body := w.Body.String()
+
+	// Check initial order: First Feed, Second Feed, Third Feed
+	firstFeedPos := strings.Index(body, "First Feed")
+	secondFeedPos := strings.Index(body, "Second Feed")
+	thirdFeedPos := strings.Index(body, "Third Feed")
+	if !(firstFeedPos < secondFeedPos && secondFeedPos < thirdFeedPos) {
+		t.Errorf("Initial order incorrect: First=%d, Second=%d, Third=%d", firstFeedPos, secondFeedPos, thirdFeedPos)
+	}
+
+	// Now move 'Third Feed' up (should swap with 'Second Feed')
+	feedsFromDB, err := store.GetUserFeeds(userID)
+	if err != nil {
+		t.Fatalf("Failed to get user feeds: %v", err)
+	}
+	var thirdFeedID int64
+	for _, f := range feedsFromDB {
+		if f.Title == "Third Feed" {
+			thirdFeedID = f.ID
+		}
+	}
+	err = store.MoveFeedUp(userID, thirdFeedID)
+	if err != nil {
+		t.Fatalf("Failed to move Third Feed up: %v", err)
+	}
+
+	// Render dashboard again
+	req, w = testRequest(srv, "GET", "/", userID)
+	srv.handleDashboard(w, req)
+	body = w.Body.String()
+
+	// Check new order: First Feed, Third Feed, Second Feed
+	firstFeedPos = strings.Index(body, "First Feed")
+	thirdFeedPos = strings.Index(body, "Third Feed")
+	secondFeedPos = strings.Index(body, "Second Feed")
+	if !(firstFeedPos < thirdFeedPos && thirdFeedPos < secondFeedPos) {
+		t.Errorf("After reordering: expected First < Third < Second, got First=%d, Third=%d, Second=%d", firstFeedPos, thirdFeedPos, secondFeedPos)
+	}
+
+	t.Logf("Feed ordering in HTML changes as expected after reordering.")
+}
+
+func TestDashboardHTMLFeedOrderingReversed(t *testing.T) {
+	// Test with reversed order to ensure ordering is respected
+	feeds := []db.Feed{
+		{ID: 3, URL: "https://example.com/feed3", Title: "Third Feed", GridPosition: 1},
+		{ID: 2, URL: "https://example.com/feed2", Title: "Second Feed", GridPosition: 2},
+		{ID: 1, URL: "https://example.com/feed1", Title: "First Feed", GridPosition: 3},
+	}
+
+	posts := map[int64][]db.Post{
+		1: {{ID: 1, Title: "Post from First Feed", Link: "https://example.com/post1"}},
+		2: {{ID: 2, Title: "Post from Second Feed", Link: "https://example.com/post2"}},
+		3: {{ID: 3, Title: "Post from Third Feed", Link: "https://example.com/post3"}},
+	}
+
+	server := testServer(t, mockStoreWithFeeds(feeds, posts))
+	req, w := testRequest(server, "GET", "/", 1)
+
+	// Call the handler directly
+	server.handleDashboard(w, req)
+
+	body := w.Body.String()
+
+	// Check that feeds appear in the order specified by GridPosition
+	thirdFeedPos := strings.Index(body, "Third Feed")
+	secondFeedPos := strings.Index(body, "Second Feed")
+	firstFeedPos := strings.Index(body, "First Feed")
+
+	if thirdFeedPos == -1 || secondFeedPos == -1 || firstFeedPos == -1 {
+		t.Fatal("Could not find all feed titles in HTML")
+	}
+
+	// Verify the order: Third (GridPosition 1) should come first, then Second (2), then First (3)
+	if thirdFeedPos >= secondFeedPos {
+		t.Errorf("Third Feed (GridPosition 1) should appear before Second Feed (GridPosition 2) in HTML. Positions: Third=%d, Second=%d",
+			thirdFeedPos, secondFeedPos)
+	}
+
+	if secondFeedPos >= firstFeedPos {
+		t.Errorf("Second Feed (GridPosition 2) should appear before First Feed (GridPosition 3) in HTML. Positions: Second=%d, First=%d",
+			secondFeedPos, firstFeedPos)
+	}
+
+	t.Logf("Reversed feed ordering test passed. Feed positions in HTML: Third=%d, Second=%d, First=%d",
+		thirdFeedPos, secondFeedPos, firstFeedPos)
 }
 
 func min(a, b int) int {

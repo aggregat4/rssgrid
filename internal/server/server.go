@@ -43,6 +43,8 @@ type StoreInterface interface {
 	MarkAllFeedPostsAsSeen(userID int64, feedID string) error
 	GetUserPostsPerFeed(userID int64) (int, error)
 	SetUserPostsPerFeed(userID int64, postsPerFeed int) error
+	MoveFeedUp(userID int64, feedID int64) error
+	MoveFeedDown(userID int64, feedID int64) error
 }
 
 type FlashMessage struct {
@@ -250,6 +252,8 @@ func (s *Server) StartWithContext(ctx context.Context, addr string) error {
 		r.Post("/settings/feeds", s.handleAddFeed)
 		r.Post("/settings/feeds/{feedId}/delete", s.handleDeleteFeed)
 		r.Post("/settings/preferences", s.handleUpdatePreferences)
+		r.Post("/settings/feeds/{feedId}/move-up", s.handleMoveFeedUp)
+		r.Post("/settings/feeds/{feedId}/move-down", s.handleMoveFeedDown)
 		r.Post("/posts/{postId}/seen", s.handleMarkPostSeen)
 		r.Post("/feeds/{feedId}/seen", s.handleMarkAllSeen)
 	})
@@ -569,4 +573,50 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func (s *Server) handleMoveFeedUp(w http.ResponseWriter, r *http.Request) {
+	feedIdStr := chi.URLParam(r, "feedId")
+	if feedIdStr == "" {
+		http.Error(w, "Invalid feed ID", http.StatusBadRequest)
+		return
+	}
+
+	feedId, err := strconv.ParseInt(feedIdStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid feed ID format", http.StatusBadRequest)
+		return
+	}
+
+	userId := s.getUserID(r)
+
+	if err := s.store.MoveFeedUp(userId, feedId); err != nil {
+		s.logErrorAndRespond(w, http.StatusInternalServerError, "Error moving feed up", "Error moving feed up for user", err, "feedId", feedId, "userId", userId)
+		return
+	}
+
+	http.Redirect(w, r, "/settings", http.StatusSeeOther)
+}
+
+func (s *Server) handleMoveFeedDown(w http.ResponseWriter, r *http.Request) {
+	feedIdStr := chi.URLParam(r, "feedId")
+	if feedIdStr == "" {
+		http.Error(w, "Invalid feed ID", http.StatusBadRequest)
+		return
+	}
+
+	feedId, err := strconv.ParseInt(feedIdStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid feed ID format", http.StatusBadRequest)
+		return
+	}
+
+	userId := s.getUserID(r)
+
+	if err := s.store.MoveFeedDown(userId, feedId); err != nil {
+		s.logErrorAndRespond(w, http.StatusInternalServerError, "Error moving feed down", "Error moving feed down for user", err, "feedId", feedId, "userId", userId)
+		return
+	}
+
+	http.Redirect(w, r, "/settings", http.StatusSeeOther)
 }

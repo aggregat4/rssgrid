@@ -92,6 +92,138 @@ type Store struct {
 	db *sql.DB
 }
 
+func (store *Store) MoveFeedDown(userID int64, i int64) error {
+	// Start a transaction
+	tx, err := store.db.Begin()
+	if err != nil {
+		return fmt.Errorf("error starting transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Get the current feed's grid position
+	var currentPosition int
+	err = tx.QueryRow(`
+		SELECT grid_position 
+		FROM user_feeds 
+		WHERE user_id = ? AND feed_id = ?
+	`, userID, i).Scan(&currentPosition)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("feed not found for user")
+		}
+		return fmt.Errorf("error getting current position: %w", err)
+	}
+
+	// Get the next feed's ID and position
+	var nextFeedID int64
+	var nextPosition int
+	err = tx.QueryRow(`
+		SELECT feed_id, grid_position 
+		FROM user_feeds 
+		WHERE user_id = ? AND grid_position > ? 
+		ORDER BY grid_position ASC 
+		LIMIT 1
+	`, userID, currentPosition).Scan(&nextFeedID, &nextPosition)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("no feed below to move down to")
+		}
+		return fmt.Errorf("error getting next feed: %w", err)
+	}
+
+	// Swap the positions
+	_, err = tx.Exec(`
+		UPDATE user_feeds 
+		SET grid_position = ? 
+		WHERE user_id = ? AND feed_id = ?
+	`, nextPosition, userID, i)
+	if err != nil {
+		return fmt.Errorf("error updating current feed position: %w", err)
+	}
+
+	_, err = tx.Exec(`
+		UPDATE user_feeds 
+		SET grid_position = ? 
+		WHERE user_id = ? AND feed_id = ?
+	`, currentPosition, userID, nextFeedID)
+	if err != nil {
+		return fmt.Errorf("error updating next feed position: %w", err)
+	}
+
+	// Commit the transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("error committing transaction: %w", err)
+	}
+
+	return nil
+}
+
+func (store *Store) MoveFeedUp(userID int64, i int64) error {
+	// Start a transaction
+	tx, err := store.db.Begin()
+	if err != nil {
+		return fmt.Errorf("error starting transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Get the current feed's grid position
+	var currentPosition int
+	err = tx.QueryRow(`
+		SELECT grid_position 
+		FROM user_feeds 
+		WHERE user_id = ? AND feed_id = ?
+	`, userID, i).Scan(&currentPosition)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("feed not found for user")
+		}
+		return fmt.Errorf("error getting current position: %w", err)
+	}
+
+	// Get the previous feed's ID and position
+	var prevFeedID int64
+	var prevPosition int
+	err = tx.QueryRow(`
+		SELECT feed_id, grid_position 
+		FROM user_feeds 
+		WHERE user_id = ? AND grid_position < ? 
+		ORDER BY grid_position DESC 
+		LIMIT 1
+	`, userID, currentPosition).Scan(&prevFeedID, &prevPosition)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("no feed above to move up to")
+		}
+		return fmt.Errorf("error getting previous feed: %w", err)
+	}
+
+	// Swap the positions
+	_, err = tx.Exec(`
+		UPDATE user_feeds 
+		SET grid_position = ? 
+		WHERE user_id = ? AND feed_id = ?
+	`, prevPosition, userID, i)
+	if err != nil {
+		return fmt.Errorf("error updating current feed position: %w", err)
+	}
+
+	_, err = tx.Exec(`
+		UPDATE user_feeds 
+		SET grid_position = ? 
+		WHERE user_id = ? AND feed_id = ?
+	`, currentPosition, userID, prevFeedID)
+	if err != nil {
+		return fmt.Errorf("error updating previous feed position: %w", err)
+	}
+
+	// Commit the transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("error committing transaction: %w", err)
+	}
+
+	return nil
+}
+
 func NewStore(dbPath string) (*Store, error) {
 	store := &Store{}
 	if err := store.InitAndVerifyDb(dbPath); err != nil {
@@ -165,14 +297,35 @@ func (store *Store) AddFeedForUser(userId int64, url string) (int64, error) {
 		return 0, fmt.Errorf("error adding or getting feed: %w", err)
 	}
 
-	// Associate the feed with the user (ignore if already associated)
-	_, err = tx.Exec(
-		"INSERT OR IGNORE INTO user_feeds (user_id, feed_id) VALUES (?, ?)",
+	// Check if the feed is already associated with the user
+	var existingPosition int
+	err = tx.QueryRow(
+		"SELECT grid_position FROM user_feeds WHERE user_id = ? AND feed_id = ?",
 		userId, feedId,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("error associating feed with user: %w", err)
+	).Scan(&existingPosition)
+
+	if err == sql.ErrNoRows {
+		// Feed is not associated with user, add it with the next available position
+		var nextPosition int
+		err = tx.QueryRow(
+			"SELECT COALESCE(MAX(grid_position), -1) + 1 FROM user_feeds WHERE user_id = ?",
+			userId,
+		).Scan(&nextPosition)
+		if err != nil {
+			return 0, fmt.Errorf("error getting next position: %w", err)
+		}
+
+		_, err = tx.Exec(
+			"INSERT INTO user_feeds (user_id, feed_id, grid_position) VALUES (?, ?, ?)",
+			userId, feedId, nextPosition,
+		)
+		if err != nil {
+			return 0, fmt.Errorf("error associating feed with user: %w", err)
+		}
+	} else if err != nil {
+		return 0, fmt.Errorf("error checking existing feed association: %w", err)
 	}
+	// If feed is already associated, do nothing (return existing feedId)
 
 	// Commit the transaction
 	if err := tx.Commit(); err != nil {
