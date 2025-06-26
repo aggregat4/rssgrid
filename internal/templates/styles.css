@@ -29,6 +29,10 @@ body {
 
     h1 {
         margin: 0;
+        a, a:visited, a:hover {
+            text-decoration: none;
+            color: var(--text-color);
+        }
     }
 }
 
@@ -561,4 +565,30 @@ body {
     .feed-actions {
         justify-content: flex-end;
     }
+}
+
+/* Feed table layout */
+.feed-table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 1rem 0;
+}
+
+.feed-column {
+    vertical-align: top;
+    width: 50%; /* Default for 2 columns, will be overridden by dynamic CSS */
+}
+
+/* Dynamic column widths based on number of columns */
+.feed-column-1 { width: 100%; }
+.feed-column-2 { width: 50%; }
+.feed-column-3 { width: 33.33%; }
+.feed-column-4 { width: 25%; }
+.feed-column-5 { width: 20%; }
+
+.grid {
+    column-count: 2;
+    column-gap: 1rem;
+    margin-top: 1rem;
 } 

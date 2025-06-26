@@ -86,6 +86,12 @@ CREATE TABLE user_preferences (
 );
 `,
 	},
+	{
+		SequenceId: 3,
+		Sql: `
+ALTER TABLE user_preferences ADD COLUMN columns INTEGER NOT NULL DEFAULT 2;
+`,
+	},
 }
 
 type Store struct {
@@ -639,4 +645,37 @@ func (store *Store) GetPost(postID int64) (*Post, error) {
 	}
 
 	return &p, nil
+}
+
+// GetUserColumns gets the number of columns for a user
+func (store *Store) GetUserColumns(userId int64) (int, error) {
+	var columns int
+	err := store.db.QueryRow(`
+		SELECT columns 
+		FROM user_preferences 
+		WHERE user_id = ?
+	`, userId).Scan(&columns)
+
+	if err == sql.ErrNoRows {
+		// Return default value if no preference is set
+		return 2, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("error querying user columns preference: %w", err)
+	}
+
+	return columns, nil
+}
+
+// SetUserColumns sets the number of columns for a user
+func (store *Store) SetUserColumns(userId int64, columns int) error {
+	_, err := store.db.Exec(`
+		INSERT INTO user_preferences (user_id, columns) 
+		VALUES (?, ?) 
+		ON CONFLICT(user_id) DO UPDATE SET columns = ?
+	`, userId, columns, columns)
+	if err != nil {
+		return fmt.Errorf("error setting user columns preference: %w", err)
+	}
+	return nil
 }

@@ -45,6 +45,8 @@ type StoreInterface interface {
 	SetUserPostsPerFeed(userID int64, postsPerFeed int) error
 	MoveFeedUp(userID int64, feedID int64) error
 	MoveFeedDown(userID int64, feedID int64) error
+	GetUserColumns(userID int64) (int, error)
+	SetUserColumns(userID int64, columns int) error
 }
 
 type FlashMessage struct {
@@ -290,6 +292,18 @@ func (s *Server) StartWithContext(ctx context.Context, addr string) error {
 	return nil
 }
 
+func splitFeedsIntoColumns[T any](feeds []T, numCols int) [][]T {
+	if numCols < 1 {
+		numCols = 1
+	}
+	columns := make([][]T, numCols)
+	for i, feed := range feeds {
+		col := i % numCols
+		columns[col] = append(columns[col], feed)
+	}
+	return columns
+}
+
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	userId := s.getUserID(r)
 
@@ -303,6 +317,13 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	postsPerFeed, err := s.store.GetUserPostsPerFeed(userId)
 	if err != nil {
 		s.logErrorAndRespond(w, http.StatusInternalServerError, "Error fetching user preferences", "Error fetching posts per feed preference", err, "userId", userId)
+		return
+	}
+
+	// Get user's column preference
+	columns, err := s.store.GetUserColumns(userId)
+	if err != nil {
+		s.logErrorAndRespond(w, http.StatusInternalServerError, "Error fetching user preferences", "Error fetching columns preference", err, "userId", userId)
 		return
 	}
 
@@ -321,13 +342,17 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		feedData = append(feedData, FeedData{Feed: f, Posts: posts})
 	}
 
+	columnsData := splitFeedsIntoColumns(feedData, columns)
+
 	data := struct {
-		Feeds []FeedData
+		Columns     [][]FeedData
+		ColumnCount int
 	}{
-		Feeds: feedData,
+		Columns:     columnsData,
+		ColumnCount: columns,
 	}
 
-	log.Printf("Rendering dashboard template with %d feeds", len(feedData))
+	log.Printf("Rendering dashboard template with %d feeds in %d columns", len(feedData), columns)
 	if err := s.templates.ExecuteTemplate(w, "dashboard.html", data); err != nil {
 		s.logErrorAndRespond(w, http.StatusInternalServerError, "Error rendering template", "Error rendering dashboard template", err, "templateData", data)
 		return
@@ -350,6 +375,13 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get user's column preference
+	columns, err := s.store.GetUserColumns(userId)
+	if err != nil {
+		s.logErrorAndRespond(w, http.StatusInternalServerError, "Error fetching user preferences", "Error fetching columns preference", err, "userId", userId)
+		return
+	}
+
 	// Get flash messages
 	flashMessages := s.getFlashMessages(w, r)
 
@@ -357,10 +389,12 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		Feeds         []db.Feed
 		FlashMessages []FlashMessage
 		PostsPerFeed  int
+		Columns       int
 	}{
 		Feeds:         feeds,
 		FlashMessages: flashMessages,
 		PostsPerFeed:  postsPerFeed,
+		Columns:       columns,
 	}
 
 	log.Printf("Rendering settings template with %d feeds", len(feeds))
@@ -496,13 +530,23 @@ func (s *Server) handleUpdatePreferences(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	columns, err := strconv.Atoi(r.FormValue("columns"))
+	if err != nil || columns < 1 {
+		s.logErrorAndRespond(w, http.StatusBadRequest, "Invalid columns format", "Error parsing columns", err)
+		return
+	}
+
 	if err := s.store.SetUserPostsPerFeed(userId, postsPerFeed); err != nil {
 		s.logErrorAndRespond(w, http.StatusInternalServerError, "Error updating posts per feed", "Error updating posts per feed for user", err, "userId", userId, "postsPerFeed", postsPerFeed)
 		return
 	}
+	if err := s.store.SetUserColumns(userId, columns); err != nil {
+		s.logErrorAndRespond(w, http.StatusInternalServerError, "Error updating columns", "Error updating columns for user", err, "userId", userId, "columns", columns)
+		return
+	}
 
 	// Set a success message in the session
-	s.addSuccessFlash(w, r, "Posts per feed updated successfully!")
+	s.addSuccessFlash(w, r, "Preferences updated successfully!")
 
 	http.Redirect(w, r, "/settings", http.StatusSeeOther)
 }

@@ -8,7 +8,7 @@
 </head>
 <body>
     <header class="header">
-        <h1>RSSGrid</h1>
+        <h1><a href="/">RSSGrid</a></h1>
         <nav class="nav">
             <a href="/">Dashboard</a>
             <a href="/settings">Settings</a>
@@ -19,30 +19,36 @@
     </header>
 
     <main class="container">
-        <div class="grid">
-            {{range .Feeds}}
-            <div class="widget" data-feed-id="{{.Feed.ID}}">
-                <div class="widget-header">
-                    <h2 class="widget-title">{{.Feed.Title}}</h2>
-                    <form action="/feeds/{{.Feed.ID}}/seen" method="POST">
-                        <button type="submit" class="btn btn-icon" title="Mark all posts for {{.Feed.Title}} as read">✓</button>
-                    </form>
-                </div>
-                <ul class="post-list">
-                    {{range .Posts}}
-                    <li class="post-item">
-                        <a href="#" role="button" class="post-link {{if .Seen}}seen{{end}}" data-post-id="{{.ID}}" data-post-title="{{.Title}}">
-                            {{.Title}}
-                        </a>
-                        {{if not .PublishedAt.IsZero}}
-                        <div class="post-date">{{.PublishedAt.Format "January 2, 2006 at 3:04 PM"}}</div>
-                        {{end}}
-                    </li>
+        <table class="feed-table">
+            <tr>
+                {{range .Columns}}
+                <td class="feed-column feed-column-{{$.ColumnCount}}">
+                    {{range .}}
+                    <div class="widget" data-feed-id="{{.Feed.ID}}">
+                        <div class="widget-header">
+                            <h2 class="widget-title">{{.Feed.Title}}</h2>
+                            <form action="/feeds/{{.Feed.ID}}/seen" method="POST">
+                                <button type="submit" class="btn btn-icon" title="Mark all posts for {{.Feed.Title}} as read">✓</button>
+                            </form>
+                        </div>
+                        <ul class="post-list">
+                            {{range .Posts}}
+                            <li class="post-item">
+                                <a href="#" role="button" class="post-link {{if .Seen}}seen{{end}}" data-post-id="{{.ID}}" data-post-title="{{.Title}}">
+                                    {{.Title}}
+                                </a>
+                                {{if not .PublishedAt.IsZero}}
+                                <div class="post-date">{{.PublishedAt.Format "January 2, 2006 at 3:04 PM"}}</div>
+                                {{end}}
+                            </li>
+                            {{end}}
+                        </ul>
+                    </div>
                     {{end}}
-                </ul>
-            </div>
-            {{end}}
-        </div>
+                </td>
+                {{end}}
+            </tr>
+        </table>
     </main>
 
     <!-- Post Detail Dialog -->

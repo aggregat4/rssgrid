@@ -35,6 +35,11 @@
                     <input type="number" id="postsPerFeed" name="postsPerFeed" min="1" max="50" value="{{.PostsPerFeed}}" required>
                     <small>Number of posts to display for each feed (1-50)</small>
                 </div>
+                <div class="form-group">
+                    <label for="columns">Number of columns</label>
+                    <input type="number" id="columns" name="columns" min="1" value="{{.Columns}}" required>
+                    <small>Number of columns to display on the dashboard (minimum 1)</small>
+                </div>
                 <button type="submit" class="btn">Save Preferences</button>
             </form>
 

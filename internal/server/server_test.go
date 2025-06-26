@@ -166,8 +166,9 @@ func assertRedirect(t *testing.T, w *httptest.ResponseRecorder, expectedLocation
 
 // Mock store for testing
 type mockStore struct {
-	feeds []db.Feed
-	posts map[int64][]db.Post
+	feeds   []db.Feed
+	posts   map[int64][]db.Post
+	columns int
 }
 
 func (m *mockStore) GetUserFeeds(userID int64) ([]db.Feed, error) {
@@ -242,6 +243,21 @@ func (m *mockStore) MoveFeedDown(userID int64, feedID int64) error {
 	return nil
 }
 
+func (m *mockStore) GetUserColumns(userID int64) (int, error) {
+	if m.columns == 0 {
+		return 2, nil
+	}
+	return m.columns, nil
+}
+
+func (m *mockStore) SetUserColumns(userID int64, columns int) error {
+	if columns < 1 {
+		columns = 1
+	}
+	m.columns = columns
+	return nil
+}
+
 // Test basic template loading and rendering
 func TestTemplateLoading(t *testing.T) {
 	templates, err := templates.LoadTemplates()
@@ -259,22 +275,26 @@ func TestTemplateLoading(t *testing.T) {
 
 	// Test rendering dashboard template with test data
 	data := struct {
-		Feeds []struct {
+		Columns [][]struct {
 			Feed  db.Feed
 			Posts []db.Post
 		}
+		ColumnCount int
 	}{
-		Feeds: []struct {
+		Columns: [][]struct {
 			Feed  db.Feed
 			Posts []db.Post
 		}{
 			{
-				Feed: db.Feed{ID: 1, Title: "Test Feed"},
-				Posts: []db.Post{
-					{ID: 1, Title: "Test Post", Link: "https://example.com"},
+				{
+					Feed: db.Feed{ID: 1, Title: "Test Feed"},
+					Posts: []db.Post{
+						{ID: 1, Title: "Test Post", Link: "https://example.com"},
+					},
 				},
 			},
 		},
+		ColumnCount: 1,
 	}
 
 	var buf bytes.Buffer
@@ -369,7 +389,7 @@ func TestUserPreferences(t *testing.T) {
 	}
 
 	// Test updating preferences
-	req := httptest.NewRequest("POST", "/settings/preferences", strings.NewReader("postsPerFeed=15"))
+	req := httptest.NewRequest("POST", "/settings/preferences", strings.NewReader("postsPerFeed=15&columns=3"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 
@@ -381,7 +401,7 @@ func TestUserPreferences(t *testing.T) {
 	assertRedirect(t, w, "/settings")
 
 	// Test invalid input
-	req = httptest.NewRequest("POST", "/settings/preferences", strings.NewReader("postsPerFeed=invalid"))
+	req = httptest.NewRequest("POST", "/settings/preferences", strings.NewReader("postsPerFeed=invalid&columns=2"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w = httptest.NewRecorder()
 
@@ -651,12 +671,19 @@ func TestDashboardTemplateWithDates(t *testing.T) {
 	}
 
 	data := struct {
-		Feeds []struct {
+		Columns [][]struct {
 			Feed  db.Feed
 			Posts []db.Post
 		}
+		ColumnCount int
 	}{
-		Feeds: testFeeds,
+		Columns: [][]struct {
+			Feed  db.Feed
+			Posts []db.Post
+		}{
+			testFeeds,
+		},
+		ColumnCount: 1,
 	}
 
 	var buf bytes.Buffer
