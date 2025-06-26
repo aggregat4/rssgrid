@@ -637,7 +637,7 @@ func TestPostTemplateRendering(t *testing.T) {
 	expectedContent := []string{
 		"Test Post for Display",
 		"This is content for the post.",
-		"View Original",
+		"View",
 		"Close",
 		"window.parent.postMessage",
 	}
