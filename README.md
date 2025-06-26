@@ -2,20 +2,11 @@
 
 A simple, fast, and persistent personal dashboard for consuming text-based content from various web feeds.
 
-## Features
-
-- OIDC authentication for secure access
-- Grid-based feed layout
-- Mark posts as read/unread
-- Feed management (add/remove feeds)
-- Automatic feed updates
-- Clean, minimalist UI
-
 ## Requirements
 
 - Go 1.21 or later
 - SQLite 3
-- An OIDC provider (e.g., Google, Auth0, etc.)
+- An OIDC provider
 
 ## Installation
 
@@ -79,28 +70,3 @@ For sensitive configuration, you can use environment variables instead of puttin
 - `RSSGRID_SESSION_KEY`: A secure key for session encryption
 
 Environment variables take precedence over values in the configuration file.
-
-## Usage
-
-1. Visit `http://localhost:8080` in your browser
-2. Log in using your OIDC provider
-3. Add feeds through the settings page
-4. View your feeds in the grid layout
-5. Click on posts to mark them as read
-
-## Development
-
-The project structure is organized as follows:
-
-- `cmd/rssgrid/`: Main application entry point
-- `internal/`: Internal packages
-  - `config/`: Configuration management using fig
-  - `db/`: Database operations (with embedded migrations)
-  - `feed/`: Feed fetching and parsing
-  - `server/`: HTTP server and handlers
-  - `templates/`: HTML templates
-- `config/`: Example configuration files
-
-## License
-
-This project is licensed under the Apache Public License 2.0 - see the LICENSE file for details.
