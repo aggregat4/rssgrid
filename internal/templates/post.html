@@ -21,14 +21,16 @@
 <body>
     <div class="post-dialog">
         <div class="post-dialog-header">
-            <h1 class="post-title">{{.Post.Title}}</h1>
-            <div class="post-meta">
-                {{if not .Post.PublishedAt.IsZero}}
-                <span class="post-date">{{.Post.PublishedAt.Format "January 2, 2006 at 3:04 PM"}}</span>
-                {{end}}
+            <div class="post-header-content">
+                <h1 class="post-title">{{.Post.Title}}</h1>
+                <div class="post-meta">
+                    {{if not .Post.PublishedAt.IsZero}}
+                    <span class="post-date">{{.Post.PublishedAt.Format "January 2, 2006 at 3:04 PM"}}</span>
+                    {{end}}
+                </div>
             </div>
             <div class="post-actions">
-                <a href="{{.Post.Link}}" target="_blank" class="btn btn-primary">View Original</a>
+                <a href="{{.Post.Link}}" target="_blank" class="btn btn-primary" title="View original post">View</a>
                 <button class="btn btn-secondary" onclick="window.parent.postMessage({type: 'closeDialog'}, '*')">Close</button>
             </div>
         </div>
