@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 )
 
 func TestNewStore(t *testing.T) {
@@ -321,6 +322,98 @@ func BenchmarkMoveFeedOperations(b *testing.B) {
 		if err != nil {
 			b.Fatalf("Failed to move feed down: %v", err)
 		}
+	}
+}
+
+func TestPruneFeedPosts(t *testing.T) {
+	// Create a temporary database
+	tmpFile, err := os.CreateTemp("", "test-*.db")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	tmpFile.Close()
+
+	store, err := NewStore(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
+	defer store.db.Close()
+
+	// Create a test user and feed
+	userID, err := store.GetOrCreateUser("prune-user", "prune-issuer")
+	if err != nil {
+		t.Fatalf("Failed to create test user: %v", err)
+	}
+
+	feedID, err := store.AddFeedForUser(userID, "https://example.com/prune.xml")
+	if err != nil {
+		t.Fatalf("Failed to add feed: %v", err)
+	}
+
+	// Add 10 posts with distinct GUIDs and increasing timestamps
+	for i := 0; i < 10; i++ {
+		err := store.AddPost(feedID, fmt.Sprintf("guid-%d", i), fmt.Sprintf("Title %d", i), fmt.Sprintf("https://example.com/post%d", i), time.Now().Add(time.Duration(i)*time.Hour), fmt.Sprintf("Content %d", i))
+		if err != nil {
+			t.Fatalf("Failed to add post %d: %v", i, err)
+		}
+	}
+
+	// Verify all 10 posts exist
+	var count int
+	err = store.db.QueryRow("SELECT COUNT(*) FROM posts WHERE feed_id = ?", feedID).Scan(&count)
+	if err != nil {
+		t.Fatalf("Failed to count posts: %v", err)
+	}
+	if count != 10 {
+		t.Fatalf("Expected 10 posts, got %d", count)
+	}
+
+	// Prune to keep 5 posts
+	err = store.PruneFeedPosts(feedID, 5)
+	if err != nil {
+		t.Fatalf("Failed to prune posts: %v", err)
+	}
+
+	// Verify only 5 posts remain
+	err = store.db.QueryRow("SELECT COUNT(*) FROM posts WHERE feed_id = ?", feedID).Scan(&count)
+	if err != nil {
+		t.Fatalf("Failed to count posts after prune: %v", err)
+	}
+	if count != 5 {
+		t.Errorf("Expected 5 posts after pruning, got %d", count)
+	}
+
+	// Verify the oldest posts were deleted (GUIDs 0-4 should be gone, 5-9 remain)
+	for i := 0; i < 10; i++ {
+		var exists int
+		err = store.db.QueryRow("SELECT COUNT(*) FROM posts WHERE feed_id = ? AND guid = ?", feedID, fmt.Sprintf("guid-%d", i)).Scan(&exists)
+		if err != nil {
+			t.Fatalf("Failed to check post existence: %v", err)
+		}
+		if i < 5 {
+			if exists != 0 {
+				t.Errorf("Expected post guid-%d to be pruned, but it exists", i)
+			}
+		} else {
+			if exists != 1 {
+				t.Errorf("Expected post guid-%d to remain, but it was pruned", i)
+			}
+		}
+	}
+
+	// Pruning with a higher keep count should not remove more posts
+	err = store.PruneFeedPosts(feedID, 10)
+	if err != nil {
+		t.Fatalf("Failed to prune posts with higher keep: %v", err)
+	}
+
+	err = store.db.QueryRow("SELECT COUNT(*) FROM posts WHERE feed_id = ?", feedID).Scan(&count)
+	if err != nil {
+		t.Fatalf("Failed to count posts after second prune: %v", err)
+	}
+	if count != 5 {
+		t.Errorf("Expected 5 posts after no-op prune, got %d", count)
 	}
 }
 

@@ -9,18 +9,20 @@ import (
 )
 
 type Updater struct {
-	store   *db.Store
-	fetcher *Fetcher
-	ticker  *time.Ticker
-	done    chan bool
+	store           *db.Store
+	fetcher         *Fetcher
+	ticker          *time.Ticker
+	done            chan bool
+	maxPostsPerFeed int
 }
 
-func NewUpdater(store *db.Store, interval time.Duration) *Updater {
+func NewUpdater(store *db.Store, interval time.Duration, maxPostsPerFeed int) *Updater {
 	return &Updater{
-		store:   store,
-		fetcher: NewFetcher(store),
-		ticker:  time.NewTicker(interval),
-		done:    make(chan bool),
+		store:           store,
+		fetcher:         NewFetcher(store),
+		ticker:          time.NewTicker(interval),
+		done:            make(chan bool),
+		maxPostsPerFeed: maxPostsPerFeed,
 	}
 }
 
@@ -94,6 +96,11 @@ func (u *Updater) updateFeeds(ctx context.Context) error {
 
 		if newPostsCount > 0 {
 			log.Printf("Added %d new posts from feed: %s", newPostsCount, feed.Title)
+		}
+
+		// Prune old posts to prevent unbounded database growth
+		if err := u.store.PruneFeedPosts(feed.ID, u.maxPostsPerFeed); err != nil {
+			log.Printf("Error pruning posts for feed %s: %v", feed.Title, err)
 		}
 
 		// Update last fetched timestamp

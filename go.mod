@@ -47,6 +47,7 @@ require (
 )
 
 require (
+	github.com/jmoiron/sqlx v1.4.0
 	github.com/kirsle/configdir v0.0.0-20170128060238-e45d2f54772f
 	github.com/kkyr/fig v0.5.0
 )

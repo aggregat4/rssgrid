@@ -50,7 +50,7 @@ func main() {
 		log.Fatalf("Error initializing server: %v", err)
 	}
 
-	updater := feed.NewUpdater(store, cfg.UpdateInterval)
+	updater := feed.NewUpdater(store, cfg.UpdateInterval, cfg.MaxPostsPerFeed)
 
 	// Create context that will be canceled on shutdown
 	ctx, cancel := context.WithCancel(context.Background())

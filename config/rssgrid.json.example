@@ -11,6 +11,9 @@
   // Feed update interval (e.g., "30m", "1h", "2h")
   "update_interval": "30m",
 
+  // Maximum number of posts to retain per feed (older posts are pruned automatically)
+  "max_posts_per_feed": 100,
+
   // Session encryption key (can also be set via RSSGRID_SESSION_KEY env var)
   "session_key": "your-secure-session-key",
 

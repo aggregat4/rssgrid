@@ -410,6 +410,23 @@ func (store *Store) AddPost(feedId int64, guid, title, link string, publishedAt 
 	return nil
 }
 
+// PruneFeedPosts deletes old posts for a feed, keeping only the most recent `keep` posts.
+func (store *Store) PruneFeedPosts(feedId int64, keep int) error {
+	_, err := store.db.Exec(`
+		DELETE FROM posts
+		WHERE id IN (
+			SELECT id FROM posts
+			WHERE feed_id = ?
+			ORDER BY published_at DESC
+			LIMIT -1 OFFSET ?
+		)
+	`, feedId, keep)
+	if err != nil {
+		return fmt.Errorf("error pruning feed posts: %w", err)
+	}
+	return nil
+}
+
 // GetFeedPosts gets the posts for a given feed and user, and returns them in descending order of published_at
 func (store *Store) GetFeedPosts(feedId int64, userId int64, limit int) ([]Post, error) {
 	rows, err := store.db.Query(`

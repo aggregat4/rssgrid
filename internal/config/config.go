@@ -11,6 +11,7 @@ type Config struct {
 	Addr           string        `fig:"addr" default:":8080"`
 	DBPath         string        `fig:"db_path" default:"rssgrid.db"`
 	UpdateInterval time.Duration `fig:"update_interval" default:"30m"`
+	MaxPostsPerFeed int          `fig:"max_posts_per_feed" default:"100"`
 	SessionKey     string        `fig:"session_key" env:"RSSGRID_SESSION_KEY" required:"true"`
 	OIDC           struct {
 		IssuerURL    string `fig:"issuer_url" env:"RSSGRID_OIDC_ISSUER_URL" required:"true"`
