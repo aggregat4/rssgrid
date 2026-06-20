@@ -464,29 +464,56 @@ type Post struct {
 	Seen        bool
 }
 
-// MarkPostAsSeen marks a post as seen for a given user
-func (store *Store) MarkPostAsSeen(userId int64, postId string) error {
-	_, err := store.db.Exec(`
+// MarkPostAsSeenForUser marks a post as seen for a given user, but only if the
+// post belongs to one of the user's subscribed feeds. It returns sql.ErrNoRows
+// when the post is not accessible to the user.
+func (store *Store) MarkPostAsSeenForUser(userID, postID int64) error {
+	res, err := store.db.Exec(`
 		INSERT INTO user_post_states (user_id, post_id, seen)
-		VALUES (?, ?, 1)
+		SELECT ?, p.id, 1
+		FROM posts p
+		JOIN user_feeds uf ON uf.feed_id = p.feed_id AND uf.user_id = ?
+		WHERE p.id = ?
 		ON CONFLICT(user_id, post_id) DO UPDATE SET seen = 1
-	`, userId, postId)
+	`, userID, userID, postID)
 	if err != nil {
-		return fmt.Errorf("error marking post as seen: %w", err)
+		return fmt.Errorf("error marking post as seen for user: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("error getting rows affected: %w", err)
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
 	}
 	return nil
 }
 
-func (store *Store) MarkAllFeedPostsAsSeen(userId int64, feedId string) error {
-	_, err := store.db.Exec(`
+// MarkAllFeedPostsAsSeenForUser marks all posts in a feed as seen for a given
+// user, but only if the user is subscribed to the feed. It returns
+// sql.ErrNoRows when the user is not subscribed to the feed.
+func (store *Store) MarkAllFeedPostsAsSeenForUser(userID, feedID int64) error {
+	var subscribed int
+	err := store.db.QueryRow(
+		"SELECT COUNT(*) FROM user_feeds WHERE user_id = ? AND feed_id = ?",
+		userID, feedID,
+	).Scan(&subscribed)
+	if err != nil {
+		return fmt.Errorf("error checking feed subscription: %w", err)
+	}
+	if subscribed == 0 {
+		return sql.ErrNoRows
+	}
+
+	_, err = store.db.Exec(`
 		INSERT INTO user_post_states (user_id, post_id, seen)
 		SELECT ?, p.id, 1
 		FROM posts p
 		WHERE p.feed_id = ?
 		ON CONFLICT(user_id, post_id) DO UPDATE SET seen = 1
-	`, userId, feedId)
+	`, userID, feedID)
 	if err != nil {
-		return fmt.Errorf("error marking all feed posts as seen: %w", err)
+		return fmt.Errorf("error marking all feed posts as seen for user: %w", err)
 	}
 	return nil
 }
@@ -553,13 +580,43 @@ func (store *Store) UpdateFeedLastFetched(feedId int64, timestamp time.Time) err
 	return nil
 }
 
-func (store *Store) DeleteFeed(feedId string) error {
-	_, err := store.db.Exec(`
-		DELETE FROM feeds
-		WHERE id = ?
-	`, feedId)
+// DeleteFeedForUser removes a user's subscription to a feed. If no users
+// remain subscribed, the feed row (and its posts, via cascade) is deleted as
+// well. It returns sql.ErrNoRows when the user is not subscribed to the feed.
+func (store *Store) DeleteFeedForUser(userID, feedID int64) error {
+	tx, err := store.db.Begin()
 	if err != nil {
-		return fmt.Errorf("error deleting feed: %w", err)
+		return fmt.Errorf("error starting transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	res, err := tx.Exec(
+		"DELETE FROM user_feeds WHERE user_id = ? AND feed_id = ?",
+		userID, feedID,
+	)
+	if err != nil {
+		return fmt.Errorf("error deleting user feed subscription: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("error getting rows affected: %w", err)
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+
+	// Garbage-collect the feed row when no subscribers remain.
+	if _, err := tx.Exec(`
+		DELETE FROM feeds
+		WHERE id = ? AND NOT EXISTS (
+			SELECT 1 FROM user_feeds WHERE feed_id = ?
+		)
+	`, feedID, feedID); err != nil {
+		return fmt.Errorf("error garbage-collecting orphaned feed: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("error committing transaction: %w", err)
 	}
 	return nil
 }
@@ -645,22 +702,23 @@ func (store *Store) SetUserPostsPerFeed(userId int64, postsPerFeed int) error {
 	return nil
 }
 
-// GetPost retrieves a single post by its ID
-func (store *Store) GetPost(postID int64) (*Post, error) {
+// GetPostForUser retrieves a single post by its ID, but only if the post's feed
+// is subscribed to by the given user. It returns sql.ErrNoRows when the post
+// does not exist or the user has no subscription to its feed.
+func (store *Store) GetPostForUser(userID, postID int64) (*Post, error) {
 	var p Post
 	err := store.db.QueryRow(`
-		SELECT id, title, link, published_at, content
-		FROM posts
-		WHERE id = ?
-	`, postID).Scan(&p.ID, &p.Title, &p.Link, &p.PublishedAt, &p.Content)
-
+		SELECT p.id, p.title, p.link, p.published_at, p.content
+		FROM posts p
+		JOIN user_feeds uf ON uf.feed_id = p.feed_id AND uf.user_id = ?
+		WHERE p.id = ?
+	`, userID, postID).Scan(&p.ID, &p.Title, &p.Link, &p.PublishedAt, &p.Content)
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("post not found")
+		return nil, sql.ErrNoRows
 	}
 	if err != nil {
-		return nil, fmt.Errorf("error querying post: %w", err)
+		return nil, fmt.Errorf("error querying post for user: %w", err)
 	}
-
 	return &p, nil
 }
 

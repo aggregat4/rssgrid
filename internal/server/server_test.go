@@ -199,15 +199,15 @@ func (m *mockStore) AddPost(feedID int64, guid, title, link string, publishedAt 
 	return nil
 }
 
-func (m *mockStore) DeleteFeed(feedID string) error {
+func (m *mockStore) DeleteFeedForUser(userID, feedID int64) error {
 	return nil
 }
 
-func (m *mockStore) MarkPostAsSeen(userID int64, postID string) error {
+func (m *mockStore) MarkPostAsSeenForUser(userID, postID int64) error {
 	return nil
 }
 
-func (m *mockStore) MarkAllFeedPostsAsSeen(userID int64, feedID string) error {
+func (m *mockStore) MarkAllFeedPostsAsSeenForUser(userID, feedID int64) error {
 	return nil
 }
 
@@ -223,7 +223,7 @@ func (m *mockStore) SetUserPostsPerFeed(userID int64, postsPerFeed int) error {
 	return nil
 }
 
-func (m *mockStore) GetPost(postID int64) (*db.Post, error) {
+func (m *mockStore) GetPostForUser(userID, postID int64) (*db.Post, error) {
 	// Search through all posts to find the one with matching ID
 	for _, posts := range m.posts {
 		for _, post := range posts {
@@ -531,8 +531,8 @@ func TestFeedLifecycle(t *testing.T) {
 	server.handleDashboard(w, req)
 	assertResponseSuccess(t, w, "Feed 1", "Feed 2", "Post 1", "Post 2")
 
-	// Delete a feed
-	err = store.DeleteFeed(fmt.Sprintf("%d", feed1ID))
+	// Delete a feed (user-scoped)
+	err = store.DeleteFeedForUser(userID, feed1ID)
 	if err != nil {
 		t.Fatalf("Failed to delete feed: %v", err)
 	}

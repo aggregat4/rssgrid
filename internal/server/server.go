@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"html/template"
 	"log"
@@ -32,15 +34,15 @@ type Server struct {
 type StoreInterface interface {
 	GetUserFeeds(userID int64) ([]db.Feed, error)
 	GetFeedPosts(feedID, userID int64, limit int) ([]db.Post, error)
-	GetPost(postID int64) (*db.Post, error)
+	GetPostForUser(userID, postID int64) (*db.Post, error)
 	GetOrCreateUser(subject, issuer string) (int64, error)
 	AddFeed(url string) (int64, error)
 	AddFeedForUser(userID int64, url string) (int64, error)
 	UpdateFeedTitle(feedID int64, title string) error
 	AddPost(feedID int64, guid, title, link string, publishedAt time.Time, content string) error
-	DeleteFeed(feedID string) error
-	MarkPostAsSeen(userID int64, postID string) error
-	MarkAllFeedPostsAsSeen(userID int64, feedID string) error
+	DeleteFeedForUser(userID, feedID int64) error
+	MarkPostAsSeenForUser(userID, postID int64) error
+	MarkAllFeedPostsAsSeenForUser(userID, feedID int64) error
 	GetUserPostsPerFeed(userID int64) (int, error)
 	SetUserPostsPerFeed(userID int64, postsPerFeed int) error
 	MoveFeedUp(userID int64, feedID int64) error
@@ -464,14 +466,26 @@ func (s *Server) handleAddFeed(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteFeed(w http.ResponseWriter, r *http.Request) {
-	feedId := chi.URLParam(r, "feedId")
-	if feedId == "" {
+	feedIdStr := chi.URLParam(r, "feedId")
+	if feedIdStr == "" {
 		http.Error(w, "Invalid feed ID", http.StatusBadRequest)
 		return
 	}
 
-	if err := s.store.DeleteFeed(feedId); err != nil {
-		s.logErrorAndRespond(w, http.StatusInternalServerError, "Error deleting feed", "Error deleting feed", err, "feedId", feedId)
+	feedId, err := strconv.ParseInt(feedIdStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid feed ID format", http.StatusBadRequest)
+		return
+	}
+
+	userId := s.getUserID(r)
+
+	if err := s.store.DeleteFeedForUser(userId, feedId); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "Feed not found", http.StatusNotFound)
+			return
+		}
+		s.logErrorAndRespond(w, http.StatusInternalServerError, "Error deleting feed", "Error deleting feed for user", err, "feedId", feedId, "userId", userId)
 		return
 	}
 
@@ -479,15 +493,25 @@ func (s *Server) handleDeleteFeed(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleMarkPostSeen(w http.ResponseWriter, r *http.Request) {
-	postId := chi.URLParam(r, "postId")
-	if postId == "" {
+	postIdStr := chi.URLParam(r, "postId")
+	if postIdStr == "" {
 		http.Error(w, "Invalid post ID", http.StatusBadRequest)
+		return
+	}
+
+	postId, err := strconv.ParseInt(postIdStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid post ID format", http.StatusBadRequest)
 		return
 	}
 
 	userId := s.getUserID(r)
 
-	if err := s.store.MarkPostAsSeen(userId, postId); err != nil {
+	if err := s.store.MarkPostAsSeenForUser(userId, postId); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "Post not found", http.StatusNotFound)
+			return
+		}
 		s.logErrorAndRespond(w, http.StatusInternalServerError, "Error marking post as seen", "Error marking post as seen for user", err, "postId", postId, "userId", userId)
 		return
 	}
@@ -496,15 +520,25 @@ func (s *Server) handleMarkPostSeen(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleMarkAllSeen(w http.ResponseWriter, r *http.Request) {
-	feedId := chi.URLParam(r, "feedId")
-	if feedId == "" {
+	feedIdStr := chi.URLParam(r, "feedId")
+	if feedIdStr == "" {
 		http.Error(w, "Invalid feed ID", http.StatusBadRequest)
+		return
+	}
+
+	feedId, err := strconv.ParseInt(feedIdStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid feed ID format", http.StatusBadRequest)
 		return
 	}
 
 	userId := s.getUserID(r)
 
-	if err := s.store.MarkAllFeedPostsAsSeen(userId, feedId); err != nil {
+	if err := s.store.MarkAllFeedPostsAsSeenForUser(userId, feedId); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "Feed not found", http.StatusNotFound)
+			return
+		}
 		s.logErrorAndRespond(w, http.StatusInternalServerError, "Error marking all posts as seen", "Error marking all posts as seen for feed", err, "feedId", feedId, "userId", userId)
 		return
 	}
@@ -564,9 +598,15 @@ func (s *Server) handleGetPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	post, err := s.store.GetPost(postId)
+	userId := s.getUserID(r)
+
+	post, err := s.store.GetPostForUser(userId, postId)
 	if err != nil {
-		s.logErrorAndRespond(w, http.StatusInternalServerError, "Error fetching post", "Error fetching post", err, "postId", postId)
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "Post not found", http.StatusNotFound)
+			return
+		}
+		s.logErrorAndRespond(w, http.StatusInternalServerError, "Error fetching post", "Error fetching post for user", err, "postId", postId, "userId", userId)
 		return
 	}
 
