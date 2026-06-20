@@ -26,7 +26,7 @@
                     {{range .}}
                     <div class="widget" data-feed-id="{{.Feed.ID}}">
                         <div class="widget-header">
-                            <h2 class="widget-title">{{.Feed.Title}}</h2>
+                            <h2 class="widget-title">{{.Feed.Title}}{{if gt .Feed.ConsecutiveFailures 0}}<span class="widget-health-dot" title="{{.Feed.LastError}}"></span>{{end}}</h2>
                             <form action="/feeds/{{.Feed.ID}}/seen" method="POST">
                                 <button type="submit" class="btn btn-icon" title="Mark all posts for {{.Feed.Title}} as read">✓</button>
                             </form>

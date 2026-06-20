@@ -5,6 +5,8 @@ import (
 	"html/template"
 	"io/fs"
 	"net/http"
+	"strconv"
+	"time"
 )
 
 //go:embed *.html
@@ -20,6 +22,13 @@ func LoadTemplates() (*template.Template, error) {
 		"sub": func(a, b int) int {
 			return a - b
 		},
+		"orTime": func(a, b time.Time) time.Time {
+			if !a.IsZero() {
+				return a
+			}
+			return b
+		},
+		"reltime": reltime,
 	}
 
 	tmpl := template.New("").Funcs(funcMap)
@@ -52,6 +61,47 @@ func LoadTemplates() (*template.Template, error) {
 	}
 
 	return tmpl, nil
+}
+
+func pluralize(n int, unit string) string {
+	if n == 1 {
+		return "1 " + unit
+	}
+	return strconv.Itoa(n) + " " + unit + "s"
+}
+
+// reltime renders a time.Time as a human-friendly relative string such as
+// "just now", "5 minutes ago", "3 hours ago", or "2 days ago". A zero time
+// renders as "never".
+func reltime(t time.Time) string {
+	if t.IsZero() {
+		return "never"
+	}
+	d := time.Since(t)
+	switch {
+	case d < 0:
+		return "in the future"
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		mins := int(d.Minutes())
+		if mins == 1 {
+			return "1 minute ago"
+		}
+		return pluralize(mins, "minute") + " ago"
+	case d < 24*time.Hour:
+		hours := int(d.Hours())
+		if hours == 1 {
+			return "1 hour ago"
+		}
+		return pluralize(hours, "hour") + " ago"
+	default:
+		days := int(d.Hours() / 24)
+		if days == 1 {
+			return "1 day ago"
+		}
+		return pluralize(days, "day") + " ago"
+	}
 }
 
 // CreateStaticFileServer creates an http.Handler that serves static files from the embedded filesystem

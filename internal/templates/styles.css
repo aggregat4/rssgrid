@@ -287,6 +287,45 @@ body {
     font-style: italic;
 }
 
+.feed-health {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-top: 0.25rem;
+    font-size: 0.8rem;
+    color: #991b1b;
+}
+
+.feed-health-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 50%;
+    background-color: #fee2e2;
+    color: #991b1b;
+    font-weight: bold;
+    font-size: 0.75rem;
+    flex-shrink: 0;
+}
+
+.feed-last-fetched {
+    margin-top: 0.25rem;
+    font-size: 0.75rem;
+    color: #6b7280;
+}
+
+.widget-health-dot {
+    display: inline-block;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background-color: #dc2626;
+    margin-left: 0.5rem;
+    flex-shrink: 0;
+}
+
 .flash-messages {
     margin-bottom: 1rem;
 }

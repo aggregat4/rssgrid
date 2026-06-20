@@ -92,6 +92,16 @@ CREATE TABLE user_preferences (
 ALTER TABLE user_preferences ADD COLUMN columns INTEGER NOT NULL DEFAULT 2;
 `,
 	},
+	{
+		SequenceId: 4,
+		Sql: `
+-- Track feed fetch health so failures can be surfaced to users and backed off.
+ALTER TABLE feeds ADD COLUMN last_error TEXT;
+ALTER TABLE feeds ADD COLUMN last_error_at DATETIME;
+ALTER TABLE feeds ADD COLUMN consecutive_failures INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE feeds ADD COLUMN last_success_at DATETIME;
+`,
+	},
 }
 
 type Store struct {
@@ -238,6 +248,11 @@ func NewStore(dbPath string) (*Store, error) {
 	return store, nil
 }
 
+// Close closes the underlying database connection.
+func (store *Store) Close() error {
+	return store.db.Close()
+}
+
 func (store *Store) InitAndVerifyDb(dbPath string) error {
 	var err error
 	store.db, err = sql.Open("sqlite3", dbPath)
@@ -343,7 +358,8 @@ func (store *Store) AddFeedForUser(userId int64, url string) (int64, error) {
 
 func (store *Store) GetUserFeeds(userId int64) ([]Feed, error) {
 	rows, err := store.db.Query(`
-		SELECT f.id, f.url, f.title, f.last_fetched_at, f.etag, f.last_modified, f.cache_until, uf.grid_position
+		SELECT f.id, f.url, f.title, f.last_fetched_at, f.etag, f.last_modified, f.cache_until, uf.grid_position,
+		       f.last_error, f.last_error_at, f.consecutive_failures, f.last_success_at
 		FROM feeds f
 		JOIN user_feeds uf ON f.id = uf.feed_id
 		WHERE uf.user_id = ?
@@ -362,7 +378,10 @@ func (store *Store) GetUserFeeds(userId int64) ([]Feed, error) {
 		var etag sql.NullString
 		var lastModified sql.NullString
 		var cacheUntil sql.NullTime
-		err := rows.Scan(&f.ID, &f.URL, &title, &lastFetched, &etag, &lastModified, &cacheUntil, &f.GridPosition)
+		var lastError sql.NullString
+		var lastErrorAt sql.NullTime
+		var lastSuccessAt sql.NullTime
+		err := rows.Scan(&f.ID, &f.URL, &title, &lastFetched, &etag, &lastModified, &cacheUntil, &f.GridPosition, &lastError, &lastErrorAt, &f.ConsecutiveFailures, &lastSuccessAt)
 		if err != nil {
 			return nil, fmt.Errorf("error scanning feed: %w", err)
 		}
@@ -381,20 +400,33 @@ func (store *Store) GetUserFeeds(userId int64) ([]Feed, error) {
 		if cacheUntil.Valid {
 			f.CacheUntil = cacheUntil.Time
 		}
+		if lastError.Valid {
+			f.LastError = lastError.String
+		}
+		if lastErrorAt.Valid {
+			f.LastErrorAt = lastErrorAt.Time
+		}
+		if lastSuccessAt.Valid {
+			f.LastSuccessAt = lastSuccessAt.Time
+		}
 		feeds = append(feeds, f)
 	}
 	return feeds, nil
 }
 
 type Feed struct {
-	ID            int64
-	URL           string
-	Title         string
-	LastFetchedAt time.Time
-	ETag          string
-	LastModified  string
-	CacheUntil    time.Time
-	GridPosition  int
+	ID                  int64
+	URL                 string
+	Title               string
+	LastFetchedAt       time.Time
+	ETag                string
+	LastModified        string
+	CacheUntil          time.Time
+	GridPosition        int
+	LastError           string
+	LastErrorAt         time.Time
+	ConsecutiveFailures int
+	LastSuccessAt       time.Time
 }
 
 // AddPost adds a post to the database but makes sure that the contents of the post are sanitized using the UGC policy of bluemonday
@@ -520,7 +552,8 @@ func (store *Store) MarkAllFeedPostsAsSeenForUser(userID, feedID int64) error {
 
 func (store *Store) GetAllFeeds() ([]Feed, error) {
 	rows, err := store.db.Query(`
-		SELECT id, url, title, last_fetched_at, etag, last_modified, cache_until
+		SELECT id, url, title, last_fetched_at, etag, last_modified, cache_until,
+		       last_error, last_error_at, consecutive_failures, last_success_at
 		FROM feeds
 	`)
 	if err != nil {
@@ -535,9 +568,16 @@ func (store *Store) GetAllFeeds() ([]Feed, error) {
 		var etag sql.NullString
 		var lastModified sql.NullString
 		var cacheUntil sql.NullTime
-		err := rows.Scan(&f.ID, &f.URL, &f.Title, &lastFetched, &etag, &lastModified, &cacheUntil)
+		var lastError sql.NullString
+		var lastErrorAt sql.NullTime
+		var lastSuccessAt sql.NullTime
+		var title sql.NullString
+		err := rows.Scan(&f.ID, &f.URL, &title, &lastFetched, &etag, &lastModified, &cacheUntil, &lastError, &lastErrorAt, &f.ConsecutiveFailures, &lastSuccessAt)
 		if err != nil {
 			return nil, fmt.Errorf("error scanning feed: %w", err)
+		}
+		if title.Valid {
+			f.Title = title.String
 		}
 		if lastFetched.Valid {
 			f.LastFetchedAt = lastFetched.Time
@@ -550,6 +590,15 @@ func (store *Store) GetAllFeeds() ([]Feed, error) {
 		}
 		if cacheUntil.Valid {
 			f.CacheUntil = cacheUntil.Time
+		}
+		if lastError.Valid {
+			f.LastError = lastError.String
+		}
+		if lastErrorAt.Valid {
+			f.LastErrorAt = lastErrorAt.Time
+		}
+		if lastSuccessAt.Valid {
+			f.LastSuccessAt = lastSuccessAt.Time
 		}
 		feeds = append(feeds, f)
 	}
@@ -576,6 +625,34 @@ func (store *Store) UpdateFeedLastFetched(feedId int64, timestamp time.Time) err
 	`, timestamp, feedId)
 	if err != nil {
 		return fmt.Errorf("error updating feed last fetched: %w", err)
+	}
+	return nil
+}
+
+// RecordFeedFailure records a fetch failure on the feed: it increments
+// consecutive_failures and stores the error message and timestamp.
+func (store *Store) RecordFeedFailure(feedID int64, fetchErr error, at time.Time) error {
+	_, err := store.db.Exec(`
+		UPDATE feeds
+		SET last_error = ?, last_error_at = ?, consecutive_failures = consecutive_failures + 1
+		WHERE id = ?
+	`, fetchErr.Error(), at, feedID)
+	if err != nil {
+		return fmt.Errorf("error recording feed failure: %w", err)
+	}
+	return nil
+}
+
+// RecordFeedSuccess clears any failure state and records the time of a
+// successful fetch, resetting consecutive_failures to 0.
+func (store *Store) RecordFeedSuccess(feedID int64, at time.Time) error {
+	_, err := store.db.Exec(`
+		UPDATE feeds
+		SET last_error = NULL, last_error_at = NULL, consecutive_failures = 0, last_success_at = ?
+		WHERE id = ?
+	`, at, feedID)
+	if err != nil {
+		return fmt.Errorf("error recording feed success: %w", err)
 	}
 	return nil
 }
@@ -639,12 +716,17 @@ func (store *Store) GetFeedByURL(url string) (*Feed, error) {
 	var etag sql.NullString
 	var lastModified sql.NullString
 	var cacheUntil sql.NullTime
+	var lastError sql.NullString
+	var lastErrorAt sql.NullTime
+	var lastSuccessAt sql.NullTime
+	var title sql.NullString
 
 	err := store.db.QueryRow(`
-		SELECT id, url, title, last_fetched_at, etag, last_modified, cache_until
+		SELECT id, url, title, last_fetched_at, etag, last_modified, cache_until,
+		       last_error, last_error_at, consecutive_failures, last_success_at
 		FROM feeds
 		WHERE url = ?
-	`, url).Scan(&f.ID, &f.URL, &f.Title, &lastFetched, &etag, &lastModified, &cacheUntil)
+	`, url).Scan(&f.ID, &f.URL, &title, &lastFetched, &etag, &lastModified, &cacheUntil, &lastError, &lastErrorAt, &f.ConsecutiveFailures, &lastSuccessAt)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -653,6 +735,9 @@ func (store *Store) GetFeedByURL(url string) (*Feed, error) {
 		return nil, fmt.Errorf("error querying feed by URL: %w", err)
 	}
 
+	if title.Valid {
+		f.Title = title.String
+	}
 	if lastFetched.Valid {
 		f.LastFetchedAt = lastFetched.Time
 	}
@@ -664,6 +749,15 @@ func (store *Store) GetFeedByURL(url string) (*Feed, error) {
 	}
 	if cacheUntil.Valid {
 		f.CacheUntil = cacheUntil.Time
+	}
+	if lastError.Valid {
+		f.LastError = lastError.String
+	}
+	if lastErrorAt.Valid {
+		f.LastErrorAt = lastErrorAt.Time
+	}
+	if lastSuccessAt.Valid {
+		f.LastSuccessAt = lastSuccessAt.Time
 	}
 
 	return &f, nil

@@ -62,6 +62,13 @@
                         <div class="feed-info">
                             <h3>{{$feed.Title}}</h3>
                             <p>{{$feed.URL}}</p>
+                            {{if gt $feed.ConsecutiveFailures 0}}
+                            <div class="feed-health" title="{{$feed.LastError}}">
+                                <span class="feed-health-badge">!</span>
+                                <span>Failing: {{$feed.LastError}} ({{$feed.ConsecutiveFailures}}x)</span>
+                            </div>
+                            {{end}}
+                            <div class="feed-last-fetched">Last fetched: {{reltime (orTime $feed.LastSuccessAt $feed.LastFetchedAt)}}</div>
                         </div>
                         <div class="feed-actions">
                             <div class="feed-reorder-buttons">
